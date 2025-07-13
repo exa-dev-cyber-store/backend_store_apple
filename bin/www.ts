@@ -30,8 +30,8 @@ db.on('open', () => {
   console.log('Connected to MongoDB');
 })
 
-app.listen(5340, () => {
-  console.log('Server is running on port 5340');
+app.listen(3000, () => {
+  console.log('Server is running on port 3000');
 })
 // server.listen(port, () => {
 //   console.log(`Server is running on port http://localhost:${port}`);

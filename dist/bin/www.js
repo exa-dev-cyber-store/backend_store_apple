@@ -26,8 +26,8 @@ const index_1 = __importDefault(require("../database/index"));
 index_1.default.on('open', () => {
     console.log('Connected to MongoDB');
 });
-app_1.default.listen(5340, () => {
-    console.log('Server is running on port 5340');
+app_1.default.listen(3000, () => {
+    console.log('Server is running on port 3000');
 });
 // server.listen(port, () => {
 //   console.log(`Server is running on port http://localhost:${port}`);
