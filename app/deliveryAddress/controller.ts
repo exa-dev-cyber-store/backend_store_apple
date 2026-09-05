@@ -1,72 +1,63 @@
-import { checkIsUserData } from "../../middleware";
 import DeliveryAddresses, { DeliveryAddress } from "./model";
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
+import { ApiResponse } from "../../types/response";
+import { NotFoundError } from "../../types/errors";
+import ErrorHandler from "../../middleware/errorHandler";
 
-export const getDeliveryAddresses = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const deliveryAddresses: DeliveryAddress[] = await DeliveryAddresses.find({ user: req.user._id });
-        if (deliveryAddresses.length > 0) {
-            checkIsUserData(deliveryAddresses[0].user.toString()!);
-            return res.status(200).json(deliveryAddresses);
-        }
-        return res.status(404).json({ message: 'Delivery Address not found', status: 404 });
-    } catch (error) {
-        console.log(error);
-        next(error);
-    }
-};
+export const getDeliveryAddresses = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const deliveryAddresses: DeliveryAddress[] = await DeliveryAddresses.find({ user: req.user!._id });
+    const response = ApiResponse.success(deliveryAddresses, 'Delivery addresses retrieved successfully');
+    (response as any).deliveryAddresses = deliveryAddresses;
+    res.status(200).json(response);
+});
 
-export const getDeliveryAddress = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findOne({ _id: req.params.id, user: req.user._id });
-        if (deliveryAddress) {
-            checkIsUserData(deliveryAddress?.user.toString()!);
-            return res.status(200).json(deliveryAddress);
-        }
-        return res.status(404).json({ message: 'Delivery Address not found' });
-    } catch (error) {
-        console.log(error);
-        next(error);
-    }
-}
+export const getDeliveryAddress = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findOne({
+        _id: req.params.id,
+        user: req.user!._id,
+    });
 
-export const createDeliveryAddress = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const payload = { ...req.body, user: req.user._id };
-        const deliveryAddress: DeliveryAddress = await DeliveryAddresses.create(payload);
-        return res.status(201).json(deliveryAddress);
-    } catch (error) {
-        console.log(error);
-        next(error);
+    if (!deliveryAddress) {
+        throw new NotFoundError('Delivery address not found');
     }
-};
 
-export const updateDeliveryAddress = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findOne({ _id: req.params.id, user: req.user._id });
-        if (deliveryAddress) {
-            checkIsUserData(deliveryAddress?.user.toString()!)
-            await DeliveryAddresses.updateOne({ _id: req.params.id }, { $set: req.body });
-            return res.status(200).json(deliveryAddress);
-        }
-        return res.status(404).json({ message: 'Delivery Address not found' });
-    } catch (error) {
-        console.log(error);
-        next(error);
-    }
-};
+    const response = ApiResponse.success(deliveryAddress, 'Delivery address retrieved successfully');
+    res.status(200).json(response);
+});
 
-export const deleteDeliveryAddress = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findOne({ _id: req.params.id, user: req.user._id });
-        if (deliveryAddress) {
-            checkIsUserData(deliveryAddress?.user.toString()!)
-            await DeliveryAddresses.deleteOne({ _id: req.params.id });
-            return res.status(204).json();
-        }
-        return res.status(404).json({ message: 'Delivery Address not found' });
-    } catch (error) {
-        console.log(error);
-        next(error);
+export const createDeliveryAddress = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const payload = { ...(req.validated?.body || req.body), user: req.user!._id };
+    const deliveryAddress: DeliveryAddress = await DeliveryAddresses.create(payload);
+
+    const response = ApiResponse.created(deliveryAddress, 'Delivery address created successfully');
+    res.status(201).json(response);
+});
+
+export const updateDeliveryAddress = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findOneAndUpdate(
+        { _id: req.params.id, user: req.user!._id },
+        { $set: (req.validated?.body || req.body) },
+        { new: true, runValidators: true }
+    );
+
+    if (!deliveryAddress) {
+        throw new NotFoundError('Delivery address not found');
     }
-};
+
+    const response = ApiResponse.success(deliveryAddress, 'Delivery address updated successfully');
+    res.status(200).json(response);
+});
+
+export const deleteDeliveryAddress = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findOneAndDelete({
+        _id: req.params.id,
+        user: req.user!._id,
+    });
+
+    if (!deliveryAddress) {
+        throw new NotFoundError('Delivery address not found');
+    }
+
+    const response = ApiResponse.deleted('Delivery address deleted successfully');
+    res.status(200).json(response);
+});

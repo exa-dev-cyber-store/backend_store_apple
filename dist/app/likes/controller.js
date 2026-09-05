@@ -15,48 +15,41 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.Likes = exports.getLikes = void 0;
 const model_1 = __importDefault(require("../users/model"));
 const model_2 = __importDefault(require("../products/model"));
-const getLikes = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-        const user = yield model_1.default.findById(req.user._id).populate('likes');
-        if (user) {
-            return res.status(200).json(user.likes);
-        }
-        return res.status(404).json({ message: 'Wishlist not found' });
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+exports.getLikes = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const user = yield model_1.default.findById(req.user._id).populate('likes');
+    if (!user) {
+        throw new errors_1.NotFoundError('User not found');
     }
-    catch (error) {
-        next(error);
+    const response = response_1.ApiResponse.success(user.likes || [], 'Wishlist retrieved successfully');
+    response.likes = user.likes || [];
+    res.status(200).json(response);
+}));
+exports.Likes = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { productId } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body);
+    const user = yield model_1.default.findById(req.user._id);
+    if (!user) {
+        throw new errors_1.NotFoundError('User not found');
     }
-});
-exports.getLikes = getLikes;
-const Likes = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-        const user = yield model_1.default.findById(req.user._id);
-        if (user) {
-            const product = yield model_2.default.findById(req.body.productId);
-            const isLiked = user.likes.find(like => like.toString() === req.body.productId);
-            if (isLiked) {
-                user.likes = user.likes.filter(like => like.toString() !== req.body.productId);
-                yield user.save();
-                return res.status(200).json({ message: 'Product removed from wishlist' });
-            }
-            else if (!isLiked && product) {
-                user.likes.push(product._id.toString());
-                yield user.save();
-                return res.status(201).json({ message: 'Product added to wishlist' });
-            }
-            return res.status(404).json({ message: 'Product not found' });
-        }
-        return res.status(404).json({ message: 'User not found' });
+    const product = yield model_2.default.findById(productId);
+    if (!product) {
+        throw new errors_1.NotFoundError('Product not found');
     }
-    catch (error) {
-        console.log(error);
-        next(error);
+    user.likes = user.likes || [];
+    const isLiked = user.likes.find(like => like.toString() === productId);
+    if (isLiked) {
+        user.likes = user.likes.filter(like => like.toString() !== productId);
+        yield user.save();
+        const response = response_1.ApiResponse.success({ liked: false }, 'Product removed from wishlist');
+        return res.status(200).json(response);
     }
-});
-exports.Likes = Likes;
+    else {
+        user.likes.push(product._id.toString());
+        yield user.save();
+        const response = response_1.ApiResponse.success({ liked: true }, 'Product added to wishlist');
+        return res.status(200).json(response);
+    }
+}));

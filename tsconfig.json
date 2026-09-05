@@ -11,7 +11,7 @@
     "strict": true
   },
   "ts-node": {
-    "esm": true
+    "transpileOnly": true
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules"]

@@ -1,74 +1,56 @@
 import Categories, { Category } from './model';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response } from 'express';
+import { ApiResponse } from '../../types/response';
+import { NotFoundError } from '../../types/errors';
+import ErrorHandler from '../../middleware/errorHandler';
 
+export const getCategories = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const categories: Category[] = await Categories.find();
+    const response = ApiResponse.success(categories, 'Categories retrieved successfully');
+    (response as any).categories = categories;
+    res.status(200).json(response);
+});
 
-export const getCategories = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const categories: Category[] = await Categories.find();
-        res.status(200).json(categories);
-    } catch (error) {
-        res.status(500).json({ message: (error as Error).message });
+export const getCategory = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const category: Category | null = await Categories.findById(req.params.id);
+    if (!category) {
+        throw new NotFoundError('Category not found');
     }
-};
 
-export const getCategory = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const category: Category | null = await Categories.findById(req.params.id);
-        if (!category) {
-            res.status(404).json({ message: 'Category not found' });
-            return;
-        }
-        res.status(200).json(category);
-    } catch (error) {
-        res.status(500).json({ message: (error as Error).message });
-    }
-};
+    const response = ApiResponse.success(category, 'Category retrieved successfully');
+    res.status(200).json(response);
+});
 
-export const createCategory = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const name: string = req.body.name;
-        const category: Category = new Categories({ name });
-        const newCategory: Category = await category.save();
-        res.status(201).json(newCategory);
-    } catch (error) {
-        if ((error as Error).name === 'ValidationError') {
-            res.status(400).json({ message: (error as Error).message });
-        }
-        res.status(500).json({ message: (error as Error).message });
-    }
-};
+export const createCategory = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { name } = (req.validated?.body || req.body) as { name: string };
+    const category: Category = new Categories({ name });
+    const newCategory: Category = await category.save();
 
-export const updateCategory = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const name: string = req.body.name;
-        const id: string = req.params.id;
-        const category: Category | null = await Categories.findById(id);
-        if (category) {
-            category.name = name;
-            const updatedCategory = await category.save();
-            res.status(200).json(updatedCategory);
-        } else {
-            res.status(404).json({ message: 'Category not found' });
-        }
-    } catch (error) {
-        if ((error as Error).name === 'ValidationError') {
-            res.status(400).json({ message: (error as Error).message });
-        }
-        res.status(500).json({ message: (error as Error).message });
-    }
-};
+    const response = ApiResponse.created(newCategory, 'Category created successfully');
+    res.status(201).json(response);
+});
 
-export const deleteCategory = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const id: string = req.params.id;
-        const category: Category | null = await Categories.findById(id);
-        if (category) {
-            await Categories.deleteOne({ _id: id });
-            res.status(200).json({ message: 'Category deleted' });
-        } else {
-            res.status(404).json({ message: 'Category not found' });
-        }
-    } catch (error) {
-        res.status(500).json({ message: (error as Error).message });
+export const updateCategory = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { name } = (req.validated?.body || req.body) as { name: string };
+    const category: Category | null = await Categories.findById(req.params.id);
+    if (!category) {
+        throw new NotFoundError('Category not found');
     }
-};
+
+    category.name = name;
+    const updatedCategory = await category.save();
+
+    const response = ApiResponse.success(updatedCategory, 'Category updated successfully');
+    res.status(200).json(response);
+});
+
+export const deleteCategory = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const category: Category | null = await Categories.findById(req.params.id);
+    if (!category) {
+        throw new NotFoundError('Category not found');
+    }
+
+    await Categories.deleteOne({ _id: req.params.id });
+    const response = ApiResponse.deleted('Category deleted successfully');
+    res.status(200).json(response);
+});

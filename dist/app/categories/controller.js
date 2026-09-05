@@ -14,81 +14,49 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteCategory = exports.updateCategory = exports.createCategory = exports.getCategory = exports.getCategories = void 0;
 const model_1 = __importDefault(require("./model"));
-const getCategories = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const categories = yield model_1.default.find();
-        res.status(200).json(categories);
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+exports.getCategories = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const categories = yield model_1.default.find();
+    const response = response_1.ApiResponse.success(categories, 'Categories retrieved successfully');
+    response.categories = categories;
+    res.status(200).json(response);
+}));
+exports.getCategory = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const category = yield model_1.default.findById(req.params.id);
+    if (!category) {
+        throw new errors_1.NotFoundError('Category not found');
     }
-    catch (error) {
-        res.status(500).json({ message: error.message });
+    const response = response_1.ApiResponse.success(category, 'Category retrieved successfully');
+    res.status(200).json(response);
+}));
+exports.createCategory = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { name } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body);
+    const category = new model_1.default({ name });
+    const newCategory = yield category.save();
+    const response = response_1.ApiResponse.created(newCategory, 'Category created successfully');
+    res.status(201).json(response);
+}));
+exports.updateCategory = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { name } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body);
+    const category = yield model_1.default.findById(req.params.id);
+    if (!category) {
+        throw new errors_1.NotFoundError('Category not found');
     }
-});
-exports.getCategories = getCategories;
-const getCategory = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const category = yield model_1.default.findById(req.params.id);
-        if (!category) {
-            res.status(404).json({ message: 'Category not found' });
-            return;
-        }
-        res.status(200).json(category);
+    category.name = name;
+    const updatedCategory = yield category.save();
+    const response = response_1.ApiResponse.success(updatedCategory, 'Category updated successfully');
+    res.status(200).json(response);
+}));
+exports.deleteCategory = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const category = yield model_1.default.findById(req.params.id);
+    if (!category) {
+        throw new errors_1.NotFoundError('Category not found');
     }
-    catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-exports.getCategory = getCategory;
-const createCategory = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const name = req.body.name;
-        const category = new model_1.default({ name });
-        const newCategory = yield category.save();
-        res.status(201).json(newCategory);
-    }
-    catch (error) {
-        if (error.name === 'ValidationError') {
-            res.status(400).json({ message: error.message });
-        }
-        res.status(500).json({ message: error.message });
-    }
-});
-exports.createCategory = createCategory;
-const updateCategory = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const name = req.body.name;
-        const id = req.params.id;
-        const category = yield model_1.default.findById(id);
-        if (category) {
-            category.name = name;
-            const updatedCategory = yield category.save();
-            res.status(200).json(updatedCategory);
-        }
-        else {
-            res.status(404).json({ message: 'Category not found' });
-        }
-    }
-    catch (error) {
-        if (error.name === 'ValidationError') {
-            res.status(400).json({ message: error.message });
-        }
-        res.status(500).json({ message: error.message });
-    }
-});
-exports.updateCategory = updateCategory;
-const deleteCategory = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const id = req.params.id;
-        const category = yield model_1.default.findById(id);
-        if (category) {
-            yield model_1.default.deleteOne({ _id: id });
-            res.status(200).json({ message: 'Category deleted' });
-        }
-        else {
-            res.status(404).json({ message: 'Category not found' });
-        }
-    }
-    catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-exports.deleteCategory = deleteCategory;
+    yield model_1.default.deleteOne({ _id: req.params.id });
+    const response = response_1.ApiResponse.deleted('Category deleted successfully');
+    res.status(200).json(response);
+}));

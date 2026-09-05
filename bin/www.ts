@@ -26,12 +26,17 @@ import db from '../database/index'
 //  * Listen on provided port, on all network interfaces.
 //  */
 
+import { startDailyOrderScheduler } from '../services/orderScheduler';
+
 db.on('open', () => {
   console.log('Connected to MongoDB');
-})
+  startDailyOrderScheduler();
+});
 
-app.listen(3000, () => {
-  console.log('Server is running on port 3000');
+const port = process.env.PORT || 5000;
+
+app.listen(port, () => {
+  console.log(`Server is running on port http://localhost:${port}`);
 })
 // server.listen(port, () => {
 //   console.log(`Server is running on port http://localhost:${port}`);

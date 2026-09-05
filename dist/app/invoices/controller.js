@@ -14,18 +14,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getInvoice = void 0;
 const model_1 = __importDefault(require("./model"));
-const middleware_1 = require("../../middleware");
-const getInvoice = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const invoices = yield model_1.default.findOne({ order: req.params.orderId }).populate({
-            path: 'user',
-            select: '-password -token -createdAt -updatedAt -role -cart -likes  -__v'
-        }).populate('order');
-        (0, middleware_1.checkIsUserData)(invoices.user._id.toString());
-        res.status(200).json(invoices);
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+exports.getInvoice = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const invoices = yield model_1.default.findOne({ order: req.params.orderId }).populate({
+        path: 'user',
+        select: '-password -token -createdAt -updatedAt -role -cart -likes -__v'
+    }).populate('order');
+    if (!invoices) {
+        throw new errors_1.NotFoundError('Invoice not found');
     }
-    catch (error) {
-        next(error);
-    }
-});
-exports.getInvoice = getInvoice;
+    const response = response_1.ApiResponse.success(invoices, 'Invoice retrieved successfully');
+    res.status(200).json(response);
+}));

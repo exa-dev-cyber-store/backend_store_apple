@@ -1,241 +1,585 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import middtransClient from 'midtrans-client';
 import Orders, { Order, OrderItem } from './model';
 import DeliveryAddresses, { DeliveryAddress } from "../deliveryAddress/model";
 import Carts, { Cart } from "../cart/model";
 import Invoices, { Invoice } from "../invoices/model";
+import { ApiResponse } from "../../types/response";
+import { NotFoundError, BadRequestError } from "../../types/errors";
+import ErrorHandler from "../../middleware/errorHandler";
 
-export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const snap = new middtransClient.Snap({
-            isProduction: false,
-            serverKey: process.env.MIDTRANS_SERVER_KEY,
+export const applyMidtransNotificationOverride = (client: any, customOverrideUrl?: string) => {
+    const overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
+    const appendUrl = (process.env.MIDTRANS_APPEND_NOTIFICATION_URL || '').trim();
+
+    if (overrideUrl && client?.httpClient?.http_client) {
+        client.httpClient.http_client.defaults.headers.common = client.httpClient.http_client.defaults.headers.common || {};
+        client.httpClient.http_client.defaults.headers.common['X-Override-Notification'] = overrideUrl;
+
+        client.httpClient.http_client.interceptors.request.use((config: any) => {
+            config.headers = config.headers || {};
+            config.headers['X-Override-Notification'] = overrideUrl;
+            return config;
         });
-        const payload = { ...req.body, user: req.user._id };
-        const cart: Cart | null = await Carts.findOne({ user: req.user._id }).populate('products.product');
-        const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findById(payload.deliveryAddress);
-        const order: Order = new Orders({
-            ...payload,
-            delivery_address: {
-                provinsi: deliveryAddress?.provinsi as string,
-                kabupaten: deliveryAddress?.kabupaten as string,
-                name: deliveryAddress?.name as string,
-                kecamatan: deliveryAddress?.kecamatan as string,
-                kelurahan: deliveryAddress?.kelurahan as string,
-                detail: deliveryAddress?.detail as string
-            }
-        });
-        const orderItems: OrderItem[] = cart!.products.map((item: any) => {
-            return {
-                _id: item.product._id,
-                quantity: item.quantity,
-                price: item.product.price,
-                name: item.product.name
-            }
-        });
-        order.order_items = orderItems;
-        const parameter = {
-            transaction_details: {
-                order_id: order._id,
-                shipping_cost: payload.shipping,
-                tax: payload.tax,
-                discount: payload.discount,
-                gross_amount: payload.total - payload.discount
-            },
-            credit_card: {
-                secure: true
-            },
-            customer_details: {
-                first_name: req.user.name,
-                last_name: '',
-                name: req.user.name,
-                email: req.user.email,
-            },
-            item_details: [
-                ...orderItems,
-                {
-                    id: 'shipping_cost',
-                    price: payload.shipping,
-                    quantity: 1,
-                    name: 'Shipping Cost'
-                },
-                {
-                    id: 'tax',
-                    price: payload.tax,
-                    quantity: 1,
-                    name: 'Tax'
-                },
-                {
-                    id: 'discount',
-                    price: -payload.discount, // Diskon biasanya negatif
-                    quantity: 1,
-                    name: 'Discount'
-                }
-            ],
-        };
-        return snap.createTransaction(parameter)
-            .then(async (transaction: any) => {
-                await Carts.findOneAndUpdate(
-                    {
-                        user: req.user._id,
-                    },
-                    {
-                        $set: {
-                            products: []
-                        }
-                    },)
-                order.token = transaction.token;
-                order.url_redirect = transaction.redirect_url;
-                await order.save();
-                // transaction token                
-                res.status(200).json({ url: transaction.redirect_url, token: transaction.token, });
-            })
-    } catch (error) {
-        console.log(error);
-        next(error);
     }
-}
 
-export const getOrders = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const orders: Order[] = await Orders.find({ user: req.user._id }).sort({ createdAt: -1 });
-        res.status(200).json(orders);
-    } catch (error) {
-        next(error);
+    if (appendUrl && client?.httpClient?.http_client) {
+        client.httpClient.http_client.defaults.headers.common = client.httpClient.http_client.defaults.headers.common || {};
+        client.httpClient.http_client.defaults.headers.common['X-Append-Notification'] = appendUrl;
+
+        client.httpClient.http_client.interceptors.request.use((config: any) => {
+            config.headers = config.headers || {};
+            config.headers['X-Append-Notification'] = appendUrl;
+            return config;
+        });
     }
 };
 
-export const updateOrder = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        if (req.user.role !== 'admin') {
-            res.status(401).json({ message: 'Unauthorized' });
-            return;
+export const createOrder = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const snap = new middtransClient.Snap({
+        isProduction: false,
+        serverKey: process.env.MIDTRANS_SERVER_KEY,
+        clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+    applyMidtransNotificationOverride(snap, req.body?.override_notification_url || (req.headers['x-override-notification'] as string));
+    const payload = { ...req.body, user: req.user!._id };
+    const cart: Cart | null = await Carts.findOne({ user: req.user!._id }).populate('products.product');
+    const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findById(payload.deliveryAddress);
+
+    if (!deliveryAddress) {
+        throw new BadRequestError('Delivery address not found');
+    }
+    if (!cart || !cart.products || cart.products.length === 0) {
+        throw new BadRequestError('Cart is empty');
+    }
+
+    const order: Order = new Orders({
+        ...payload,
+        delivery_address: {
+            provinsi: deliveryAddress.provinsi,
+            kabupaten: deliveryAddress.kabupaten,
+            name: deliveryAddress.name,
+            kecamatan: deliveryAddress.kecamatan,
+            kelurahan: deliveryAddress.kelurahan,
+            detail: deliveryAddress.detail
         }
-        const status_delivery = req.body.status_delivery;
-        await Orders.findByIdAndUpdate(req.params.id, { status_delivery }, { runValidators: true });
-        res.status(200).json({ message: 'Order updated' });
-    } catch (error) {
-        next(error);
-    }
-};
+    });
 
-export const getAllOrders = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        if (req.user.role === 'admin') {
-            const { skip, limit } = req.query;
-            const orders: Order[] = await Orders.find({ payment_method: { $ne: '', $exists: true } }).sort({ createdAt: -1 }).skip(parseInt(skip as string)).limit(parseInt(limit as string)).skip(parseInt(skip as string));
-            const count = await Orders.countDocuments({ payment_method: { $ne: '', $exists: true } });
-            const page: number = count === 0 ? 1 : Math.ceil(count / 12);
-            res.status(200).json({ orders, count, page });
-            return;
+    const orderItems: OrderItem[] = cart.products.map((item: any) => ({
+        _id: item.product._id,
+        quantity: item.quantity,
+        price: item.product.price,
+        name: item.product.name
+    }));
+    order.order_items = orderItems;
+
+    const parameter = {
+        transaction_details: {
+            order_id: order._id,
+            shipping_cost: payload.shipping || 0,
+            tax: payload.tax || 0,
+            discount: payload.discount || 0,
+            gross_amount: (payload.total || 0) - (payload.discount || 0)
+        },
+        credit_card: {
+            secure: true
+        },
+        customer_details: {
+            first_name: req.user!.name,
+            last_name: '',
+            name: req.user!.name,
+            email: req.user!.email,
+        },
+        item_details: [
+            ...orderItems,
+            {
+                id: 'shipping_cost',
+                price: payload.shipping || 0,
+                quantity: 1,
+                name: 'Shipping Cost'
+            },
+            {
+                id: 'tax',
+                price: payload.tax || 0,
+                quantity: 1,
+                name: 'Tax'
+            },
+            {
+                id: 'discount',
+                price: -(payload.discount || 0),
+                quantity: 1,
+                name: 'Discount'
+            }
+        ],
+    };
+
+    const transaction: any = await snap.createTransaction(parameter);
+    await Carts.findOneAndUpdate({ user: req.user!._id }, { $set: { products: [] } });
+
+    order.token = transaction.token;
+    order.url_redirect = transaction.redirect_url;
+    await order.save();
+
+    const response = ApiResponse.success({
+        url: transaction.redirect_url,
+        token: transaction.token,
+    }, 'Order created successfully');
+
+    res.status(200).json(response);
+});
+
+export const getOrders = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { skip, limit, page, status } = req.query;
+    const filter: any = { user: req.user!._id };
+
+    if (status && typeof status === 'string' && status !== 'all') {
+        const statusLower = status.toLowerCase();
+        if (statusLower === 'completed' || statusLower === 'paid') {
+            filter.status_payment = { $in: ['completed', 'paid', 'settlement'] };
+        } else if (statusLower === 'pending') {
+            filter.status_payment = { $in: ['pending', 'waiting'] };
+        } else if (statusLower === 'cancelled' || statusLower === 'expired') {
+            filter.status_payment = { $in: ['cancelled', 'cancel', 'expire', 'expired', 'deny', 'failure'] };
         } else {
-            res.status(401).json({ message: 'Unauthorized' });
+            filter.status_payment = status;
         }
-    } catch (error) {
-        next(error);
     }
-};
 
-export const getOrder = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const order: Order | null = await Orders.findById(req.params.id);
-        res.status(200).json(order);
-    } catch (error) {
-        next(error);
+    const count = await Orders.countDocuments(filter);
+
+    let query = Orders.find(filter)
+        .populate('order_items._id')
+        .sort({ createdAt: -1 });
+
+    const isPaginated = page !== undefined || limit !== undefined || skip !== undefined;
+    const parsedLimit = isPaginated ? Math.max(1, parseInt(limit as string) || 5) : 0;
+    const parsedPage = isPaginated ? Math.max(1, parseInt(page as string) || 1) : 1;
+    const parsedSkip = skip !== undefined ? Math.max(0, parseInt(skip as string) || 0) : (parsedPage - 1) * parsedLimit;
+
+    if (isPaginated && parsedLimit > 0) {
+        query = query.skip(parsedSkip).limit(parsedLimit);
     }
-};
 
-export const handleMidtransNotification = async (req: Request, res: Response, next: NextFunction) => {
+    const orders: Order[] = await query;
+    const totalPages = isPaginated && parsedLimit > 0 ? Math.max(1, Math.ceil(count / parsedLimit)) : 1;
+
+    const response = ApiResponse.success(orders, 'User orders retrieved successfully');
+    (response as any).orders = orders;
+    (response as any).count = count;
+    (response as any).total = count;
+    (response as any).totalPages = totalPages;
+    (response as any).currentPage = parsedPage;
+    (response as any).limit = parsedLimit > 0 ? parsedLimit : count;
+    res.status(200).json(response);
+});
+
+export const updateOrder = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const status_delivery = req.body.status_delivery;
+    const order = await Orders.findByIdAndUpdate(
+        req.params.id,
+        { status_delivery },
+        { new: true, runValidators: true }
+    );
+
+    if (!order) {
+        throw new NotFoundError('Order not found');
+    }
+
+    const response = ApiResponse.success({ order, message: 'Order updated' }, 'Order updated successfully');
+    res.status(200).json(response);
+});
+
+export const getAllOrders = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { skip, limit } = req.query;
+    const parsedSkip = parseInt(skip as string) || 0;
+    const parsedLimit = parseInt(limit as string) || 12;
+
+    const orders: Order[] = await Orders.find({ payment_method: { $ne: '', $exists: true } })
+        .sort({ createdAt: -1 })
+        .skip(parsedSkip)
+        .limit(parsedLimit);
+
+    const count = await Orders.countDocuments({ payment_method: { $ne: '', $exists: true } });
+    const page: number = count === 0 ? 1 : Math.ceil(count / 12);
+
+    const response = ApiResponse.success({ orders, count, page }, 'Orders retrieved successfully');
+    res.status(200).json(response);
+});
+
+export const getOrder = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const order: Order | null = await Orders.findById(req.params.id).populate('order_items._id');
+    if (!order) {
+        throw new NotFoundError('Order not found');
+    }
+
+    const response = ApiResponse.success(order, 'Order retrieved successfully');
+    res.status(200).json(response);
+});
+
+export const handleMidtransNotification = async (req: Request, res: Response) => {
     try {
         const snap = new middtransClient.Snap({
             isProduction: false,
             serverKey: process.env.MIDTRANS_SERVER_KEY,
         });
         const notification = req.body;
+        let statusResponse = notification;
+        try {
+            statusResponse = await snap.transaction.notification(notification);
+        } catch {
+            statusResponse = notification;
+        }
 
-        const statusResponse = await snap.transaction.notification(notification);
-
-        const orderId = statusResponse.order_id;
+        const rawOrderId = String(statusResponse.order_id || '');
+        const cleanOrderId = rawOrderId.split('-')[0];
         const transactionStatus = statusResponse.transaction_status;
         const fraudStatus = statusResponse.fraud_status;
-        const invoice: Invoice | null = await Invoices.findOne({ order: orderId });
-        // Lakukan tindakan berdasarkan status transaksi
+
+        const isCleanIdValid = mongoose.Types.ObjectId.isValid(cleanOrderId);
+        const order: Order | null = (isCleanIdValid ? await Orders.findById(cleanOrderId) : null) ||
+            await Orders.findOne({ token: statusResponse.transaction_id }) ||
+            await Orders.findOne({ token: rawOrderId });
+
+        if (!order) {
+            return res.status(200).send('OK');
+        }
+
+        const resolvedOrderId = order._id;
+        const invoice: Invoice | null = await Invoices.findOne({ order: resolvedOrderId });
+
+        const existingDetails = (order as any).payment_details || {};
+        const mergedDetails = {
+            ...existingDetails,
+            ...statusResponse,
+            actions: (statusResponse.actions && statusResponse.actions.length > 0) ? statusResponse.actions : existingDetails.actions,
+            qr_string: statusResponse.qr_string || existingDetails.qr_string,
+            va_numbers: (statusResponse.va_numbers && statusResponse.va_numbers.length > 0) ? statusResponse.va_numbers : existingDetails.va_numbers,
+            permata_va_number: statusResponse.permata_va_number || existingDetails.permata_va_number,
+            bill_key: statusResponse.bill_key || existingDetails.bill_key,
+            biller_code: statusResponse.biller_code || existingDetails.biller_code,
+            payment_code: statusResponse.payment_code || existingDetails.payment_code,
+        };
+
+        order.payment_method = statusResponse.payment_type || order.payment_method;
+        (order as any).payment_details = mergedDetails;
+
         if (transactionStatus === 'capture') {
             if (fraudStatus === 'accept') {
-                await Orders.findByIdAndUpdate(orderId, {
-                    status_payment: 'completed',
-                    payment_method: statusResponse.payment_type,
-                }, {
-                    runValidators: true,
-                });
-                console.log(invoice);
+                order.status_payment = 'completed';
                 if (invoice) {
                     invoice.payment_method = statusResponse.payment_type;
                     invoice.status_payment = 'completed';
+                    (invoice as any).payment_details = mergedDetails;
                     await invoice.save();
                 }
             }
         } else if (transactionStatus === 'settlement') {
-            // Transaksi sukses
-            await Orders.findByIdAndUpdate(orderId, {
-                status_payment: 'completed',
-                payment_method: statusResponse.payment_type,
-            }, {
-                runValidators: true,
-            });
+            order.status_payment = 'completed';
             if (invoice) {
                 invoice.payment_method = statusResponse.payment_type;
                 invoice.status_payment = 'completed';
+                (invoice as any).payment_details = mergedDetails;
                 await invoice.save();
             }
-        } else if (transactionStatus === 'deny') {
-            await Orders.findByIdAndUpdate(orderId, {
-                status_payment: 'cancelled',
-                payment_method: statusResponse.payment_type,
-                status_delivery: 'cancelled',
-            }, {
-                runValidators: true,
-            });// Transaksi ditolak            
+        } else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
+            order.status_payment = 'cancelled';
+            order.status_delivery = 'cancelled';
             if (invoice) {
                 invoice.payment_method = statusResponse.payment_type;
                 invoice.status_payment = 'cancelled';
-                await invoice.save();
-            }
-        } else if (transactionStatus === 'cancel' || transactionStatus === 'expire') {
-            // Transaksi dibatalkan
-            await Orders.findByIdAndUpdate(orderId, {
-                status_payment: 'cancelled',
-                payment_method: statusResponse.payment_type,
-                status_delivery: 'cancelled',
-            }, {
-                runValidators: true,
-            });
-            if (invoice) {
-                invoice.payment_method = statusResponse.payment_type;
-                invoice.status_payment = 'cancelled';
+                (invoice as any).payment_details = mergedDetails;
                 await invoice.save();
             }
         } else if (transactionStatus === 'pending') {
-            await Orders.findByIdAndUpdate(orderId, {
-                status_payment: 'pending',
-                payment_method: statusResponse.payment_type,
-            }, {
-                runValidators: true
-            });
-            // Transaksi pending            
+            order.status_payment = 'pending';
             if (invoice) {
                 invoice.payment_method = statusResponse.payment_type;
                 invoice.status_payment = 'pending';
+                (invoice as any).payment_details = mergedDetails;
                 await invoice.save();
             }
-        } else {
-            invoice!.status_payment = 'cancelled';
-            invoice!.status_delivery = 'cancelled';
-            invoice!.payment_method = 'cancelled';
-            await invoice!.save();
         }
+
+        await order.save();
         res.status(200).send('OK');
     } catch (error) {
-        next(error);
+        console.error('[Midtrans Webhook Error]:', error);
+        res.status(200).send('OK');
     }
 };
+
+export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const coreApi = new middtransClient.CoreApi({
+        isProduction: false,
+        serverKey: process.env.MIDTRANS_SERVER_KEY,
+        clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+    applyMidtransNotificationOverride(coreApi, req.body?.override_notification_url || (req.headers['x-override-notification'] as string));
+
+    const payload = { ...req.body, user: req.user!._id };
+    let order: Order | null = null;
+    let isExistingOrder = false;
+
+    if (payload.order_id) {
+        order = await Orders.findOne({ _id: payload.order_id, user: req.user!._id }).populate('order_items._id');
+        if (order && order.status_payment === 'pending') {
+            isExistingOrder = true;
+        }
+    }
+
+    let orderItems: OrderItem[] = [];
+    let orderIdStr = '';
+    let calculatedGrossAmount = 0;
+    let itemsList: any[] = [];
+
+    if (isExistingOrder && order) {
+        orderItems = order.order_items;
+        orderIdStr = String((order as any)._id);
+        calculatedGrossAmount = order.total;
+        itemsList = [
+            ...orderItems.map((item: any) => ({
+                id: (item._id?._id || item._id || 'item').toString().substring(0, 50),
+                price: item.price,
+                quantity: item.quantity || 1,
+                name: (item.name || 'Apple Store Item').substring(0, 50),
+            })),
+            ...(order.shipping > 0 ? [{ id: 'shipping_cost', price: order.shipping, quantity: 1, name: 'Shipping Cost' }] : []),
+            ...(order.tax > 0 ? [{ id: 'tax', price: order.tax, quantity: 1, name: 'Tax' }] : []),
+            ...(order.discount > 0 ? [{ id: 'discount', price: -order.discount, quantity: 1, name: 'Discount' }] : []),
+        ];
+        const sumItems = itemsList.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+        if (sumItems > 0 && sumItems !== calculatedGrossAmount) {
+            calculatedGrossAmount = sumItems;
+            order.total = calculatedGrossAmount;
+        }
+    } else {
+        const cart: Cart | null = await Carts.findOne({ user: req.user!._id }).populate('products.product');
+        const deliveryAddress: DeliveryAddress | null = await DeliveryAddresses.findById(payload.deliveryAddress);
+
+        if (!deliveryAddress) {
+            throw new BadRequestError('Delivery address is required');
+        }
+
+        if (!cart || !cart.products || cart.products.length === 0) {
+            throw new BadRequestError('Your cart is empty');
+        }
+
+        const validItems = cart.products.filter((item: any) => item && item.product && item.product._id);
+        if (validItems.length === 0) {
+            throw new BadRequestError('Your cart does not contain valid products');
+        }
+
+        order = new Orders({
+            ...payload,
+            payment_method: payload.payment_type || 'bank_transfer',
+            status_payment: 'pending',
+            status_delivery: 'pending',
+            delivery_address: {
+                provinsi: deliveryAddress.provinsi,
+                kabupaten: deliveryAddress.kabupaten,
+                name: deliveryAddress.name,
+                kecamatan: deliveryAddress.kecamatan,
+                kelurahan: deliveryAddress.kelurahan,
+                detail: deliveryAddress.detail
+            }
+        });
+
+        orderItems = validItems.map((item: any) => ({
+            _id: item.product._id,
+            quantity: item.quantity || 1,
+            price: item.product.price,
+            name: item.product.name
+        }));
+        order.order_items = orderItems;
+
+        orderIdStr = String((order as any)._id);
+        itemsList = [
+            ...orderItems.map(item => ({
+                id: item._id.toString().substring(0, 50),
+                price: item.price,
+                quantity: item.quantity,
+                name: item.name.substring(0, 50),
+            })),
+            ...(payload.shipping > 0 ? [{ id: 'shipping_cost', price: payload.shipping, quantity: 1, name: 'Shipping Cost' }] : []),
+            ...(payload.tax > 0 ? [{ id: 'tax', price: payload.tax, quantity: 1, name: 'Tax' }] : []),
+            ...(payload.discount > 0 ? [{ id: 'discount', price: -payload.discount, quantity: 1, name: 'Discount' }] : []),
+        ];
+
+        calculatedGrossAmount = itemsList.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+        order.total = calculatedGrossAmount;
+    }
+
+    const midtransTxOrderId = isExistingOrder ? `${orderIdStr}-${Date.now().toString().slice(-4)}` : orderIdStr;
+
+    const parameter: any = {
+        payment_type: payload.payment_type || 'bank_transfer',
+        transaction_details: {
+            order_id: midtransTxOrderId,
+            gross_amount: calculatedGrossAmount,
+        },
+        customer_details: {
+            first_name: req.user!.name,
+            last_name: '',
+            email: req.user!.email,
+        },
+        item_details: itemsList
+    };
+
+    const paymentType = payload.payment_type || 'bank_transfer';
+    if (paymentType === 'bank_transfer') {
+        const bank = (payload.bank || 'bca').toLowerCase();
+        if (bank === 'mandiri' || bank === 'echannel') {
+            parameter.payment_type = 'echannel';
+            parameter.echannel = {
+                bill_info1: 'Payment For:',
+                bill_info2: `Apple Store Order #${orderIdStr.slice(-6)}`
+            };
+        } else if (bank === 'permata') {
+            parameter.payment_type = 'bank_transfer';
+            parameter.bank_transfer = { bank: 'permata' };
+        } else {
+            parameter.payment_type = 'bank_transfer';
+            parameter.bank_transfer = { bank };
+        }
+    } else if (paymentType === 'echannel') {
+        parameter.payment_type = 'echannel';
+        parameter.echannel = {
+            bill_info1: 'Payment For:',
+            bill_info2: `Apple Store Order #${orderIdStr.slice(-6)}`
+        };
+    } else if (paymentType === 'qris') {
+        parameter.payment_type = 'qris';
+        parameter.qris = { acquirer: 'gopay' };
+    } else if (paymentType === 'gopay') {
+        parameter.payment_type = 'gopay';
+        parameter.gopay = {
+            enable_callback: true,
+            callback_url: 'http://localhost:3001/account/order'
+        };
+    } else if (paymentType === 'cstore') {
+        parameter.payment_type = 'cstore';
+        parameter.cstore = {
+            store: payload.store || 'indomaret',
+            message: `Apple Store Order #${orderIdStr.slice(-6)}`
+        };
+    }
+
+    const chargeResponse = await coreApi.charge(parameter);
+
+    if (!isExistingOrder) {
+        await Carts.findOneAndUpdate(
+            { user: req.user!._id },
+            { $set: { products: [] } }
+        );
+    }
+
+    order!.token = chargeResponse.transaction_id || chargeResponse.order_id || midtransTxOrderId;
+    order!.payment_method = chargeResponse.payment_type || paymentType;
+    (order as any).payment_details = chargeResponse;
+
+    if (chargeResponse.actions && chargeResponse.actions.length > 0) {
+        const qrAction = chargeResponse.actions.find((a: any) => a.name === 'generate-qr-code');
+        const deepLinkAction = chargeResponse.actions.find((a: any) => a.name === 'deeplink-redirect');
+        if (qrAction) {
+            order!.url_redirect = qrAction.url;
+        } else if (deepLinkAction) {
+            order!.url_redirect = deepLinkAction.url;
+        }
+    }
+
+    await order!.save();
+    await order!.populate('order_items._id');
+
+    const response = ApiResponse.success({
+        status: 'success',
+        order,
+        charge: chargeResponse
+    }, 'Payment charged successfully');
+
+    res.status(200).json(response);
+});
+
+export const getPaymentStatus = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const orderId = req.params.id;
+    const order: Order | null = await Orders.findById(orderId).populate('order_items._id');
+    if (!order) {
+        throw new NotFoundError('Order not found');
+    }
+
+    const coreApi = new middtransClient.CoreApi({
+        isProduction: false,
+        serverKey: process.env.MIDTRANS_SERVER_KEY,
+        clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+
+    const orderIdStr = String((order as any)._id);
+    const identifier = order.token || orderIdStr;
+    let midtransStatus: any = null;
+
+    try {
+        midtransStatus = await coreApi.transaction.status(identifier);
+    } catch {
+        try {
+            midtransStatus = await coreApi.transaction.status(orderIdStr);
+        } catch (innerErr) {
+            console.warn('Midtrans status check skipped or not yet available:', innerErr);
+        }
+    }
+
+    if (midtransStatus) {
+        const transactionStatus = midtransStatus.transaction_status;
+        const fraudStatus = midtransStatus.fraud_status;
+        const invoice: Invoice | null = await Invoices.findOne({ order: (order as any)._id });
+
+        const existingDetails = (order as any).payment_details || {};
+        const mergedDetails = {
+            ...existingDetails,
+            ...midtransStatus,
+            actions: (midtransStatus.actions && midtransStatus.actions.length > 0) ? midtransStatus.actions : existingDetails.actions,
+            qr_string: midtransStatus.qr_string || existingDetails.qr_string,
+            va_numbers: (midtransStatus.va_numbers && midtransStatus.va_numbers.length > 0) ? midtransStatus.va_numbers : existingDetails.va_numbers,
+            permata_va_number: midtransStatus.permata_va_number || existingDetails.permata_va_number,
+            bill_key: midtransStatus.bill_key || existingDetails.bill_key,
+            biller_code: midtransStatus.biller_code || existingDetails.biller_code,
+            payment_code: midtransStatus.payment_code || existingDetails.payment_code,
+        };
+
+        (order as any).payment_details = mergedDetails;
+
+        if (transactionStatus === 'settlement' || (transactionStatus === 'capture' && fraudStatus === 'accept')) {
+            order.status_payment = 'completed';
+            if (invoice) {
+                invoice.payment_method = midtransStatus.payment_type;
+                invoice.status_payment = 'completed';
+                (invoice as any).payment_details = mergedDetails;
+                await invoice.save();
+            }
+        } else if (['cancel', 'expire', 'deny'].includes(transactionStatus)) {
+            order.status_payment = 'cancelled';
+            if (invoice) {
+                invoice.payment_method = midtransStatus.payment_type;
+                invoice.status_payment = 'cancelled';
+                (invoice as any).payment_details = mergedDetails;
+                await invoice.save();
+            }
+        }
+        await order.save();
+    }
+
+    const response = ApiResponse.success({
+        status: order.status_payment,
+        midtransStatus: midtransStatus?.transaction_status || order.status_payment,
+        order,
+        charge: (order as any).payment_details || midtransStatus
+    }, 'Payment status retrieved');
+
+    res.status(200).json(response);
+});
+
+export const autoGenerateOrder = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { generateSingleRandomOrder } = await import('../../services/orderScheduler');
+    const result = await generateSingleRandomOrder();
+    const response = ApiResponse.success(result, 'Daily order generated successfully');
+    res.status(201).json(response);
+});

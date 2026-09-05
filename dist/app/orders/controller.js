@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -12,249 +45,506 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.handleMidtransNotification = exports.getOrder = exports.getAllOrders = exports.updateOrder = exports.getOrders = exports.createOrder = void 0;
+exports.autoGenerateOrder = exports.getPaymentStatus = exports.chargeCoreApi = exports.handleMidtransNotification = exports.getOrder = exports.getAllOrders = exports.updateOrder = exports.getOrders = exports.createOrder = exports.applyMidtransNotificationOverride = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const midtrans_client_1 = __importDefault(require("midtrans-client"));
 const model_1 = __importDefault(require("./model"));
 const model_2 = __importDefault(require("../deliveryAddress/model"));
 const model_3 = __importDefault(require("../cart/model"));
 const model_4 = __importDefault(require("../invoices/model"));
-const createOrder = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const snap = new midtrans_client_1.default.Snap({
-            isProduction: false,
-            serverKey: process.env.MIDTRANS_SERVER_KEY,
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+const applyMidtransNotificationOverride = (client, customOverrideUrl) => {
+    var _a, _b;
+    const overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
+    const appendUrl = (process.env.MIDTRANS_APPEND_NOTIFICATION_URL || '').trim();
+    if (overrideUrl && ((_a = client === null || client === void 0 ? void 0 : client.httpClient) === null || _a === void 0 ? void 0 : _a.http_client)) {
+        client.httpClient.http_client.defaults.headers.common = client.httpClient.http_client.defaults.headers.common || {};
+        client.httpClient.http_client.defaults.headers.common['X-Override-Notification'] = overrideUrl;
+        client.httpClient.http_client.interceptors.request.use((config) => {
+            config.headers = config.headers || {};
+            config.headers['X-Override-Notification'] = overrideUrl;
+            return config;
         });
-        const payload = Object.assign(Object.assign({}, req.body), { user: req.user._id });
-        const cart = yield model_3.default.findOne({ user: req.user._id }).populate('products.product');
-        const deliveryAddress = yield model_2.default.findById(payload.deliveryAddress);
-        const order = new model_1.default(Object.assign(Object.assign({}, payload), { delivery_address: {
-                provinsi: deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.provinsi,
-                kabupaten: deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.kabupaten,
-                name: deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.name,
-                kecamatan: deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.kecamatan,
-                kelurahan: deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.kelurahan,
-                detail: deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.detail
-            } }));
-        const orderItems = cart.products.map((item) => {
-            return {
-                _id: item.product._id,
-                quantity: item.quantity,
-                price: item.product.price,
-                name: item.product.name
-            };
+    }
+    if (appendUrl && ((_b = client === null || client === void 0 ? void 0 : client.httpClient) === null || _b === void 0 ? void 0 : _b.http_client)) {
+        client.httpClient.http_client.defaults.headers.common = client.httpClient.http_client.defaults.headers.common || {};
+        client.httpClient.http_client.defaults.headers.common['X-Append-Notification'] = appendUrl;
+        client.httpClient.http_client.interceptors.request.use((config) => {
+            config.headers = config.headers || {};
+            config.headers['X-Append-Notification'] = appendUrl;
+            return config;
         });
-        order.order_items = orderItems;
-        const parameter = {
-            transaction_details: {
-                order_id: order._id,
-                shipping_cost: payload.shipping,
-                tax: payload.tax,
-                discount: payload.discount,
-                gross_amount: payload.total - payload.discount
+    }
+};
+exports.applyMidtransNotificationOverride = applyMidtransNotificationOverride;
+exports.createOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const snap = new midtrans_client_1.default.Snap({
+        isProduction: false,
+        serverKey: process.env.MIDTRANS_SERVER_KEY,
+        clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+    (0, exports.applyMidtransNotificationOverride)(snap, ((_a = req.body) === null || _a === void 0 ? void 0 : _a.override_notification_url) || req.headers['x-override-notification']);
+    const payload = Object.assign(Object.assign({}, req.body), { user: req.user._id });
+    const cart = yield model_3.default.findOne({ user: req.user._id }).populate('products.product');
+    const deliveryAddress = yield model_2.default.findById(payload.deliveryAddress);
+    if (!deliveryAddress) {
+        throw new errors_1.BadRequestError('Delivery address not found');
+    }
+    if (!cart || !cart.products || cart.products.length === 0) {
+        throw new errors_1.BadRequestError('Cart is empty');
+    }
+    const order = new model_1.default(Object.assign(Object.assign({}, payload), { delivery_address: {
+            provinsi: deliveryAddress.provinsi,
+            kabupaten: deliveryAddress.kabupaten,
+            name: deliveryAddress.name,
+            kecamatan: deliveryAddress.kecamatan,
+            kelurahan: deliveryAddress.kelurahan,
+            detail: deliveryAddress.detail
+        } }));
+    const orderItems = cart.products.map((item) => ({
+        _id: item.product._id,
+        quantity: item.quantity,
+        price: item.product.price,
+        name: item.product.name
+    }));
+    order.order_items = orderItems;
+    const parameter = {
+        transaction_details: {
+            order_id: order._id,
+            shipping_cost: payload.shipping || 0,
+            tax: payload.tax || 0,
+            discount: payload.discount || 0,
+            gross_amount: (payload.total || 0) - (payload.discount || 0)
+        },
+        credit_card: {
+            secure: true
+        },
+        customer_details: {
+            first_name: req.user.name,
+            last_name: '',
+            name: req.user.name,
+            email: req.user.email,
+        },
+        item_details: [
+            ...orderItems,
+            {
+                id: 'shipping_cost',
+                price: payload.shipping || 0,
+                quantity: 1,
+                name: 'Shipping Cost'
             },
-            credit_card: {
-                secure: true
+            {
+                id: 'tax',
+                price: payload.tax || 0,
+                quantity: 1,
+                name: 'Tax'
             },
-            customer_details: {
-                first_name: req.user.name,
-                last_name: '',
-                name: req.user.name,
-                email: req.user.email,
-            },
-            item_details: [
-                ...orderItems,
-                {
-                    id: 'shipping_cost',
-                    price: payload.shipping,
-                    quantity: 1,
-                    name: 'Shipping Cost'
-                },
-                {
-                    id: 'tax',
-                    price: payload.tax,
-                    quantity: 1,
-                    name: 'Tax'
-                },
-                {
-                    id: 'discount',
-                    price: -payload.discount, // Diskon biasanya negatif
-                    quantity: 1,
-                    name: 'Discount'
-                }
-            ],
-        };
-        return snap.createTransaction(parameter)
-            .then((transaction) => __awaiter(void 0, void 0, void 0, function* () {
-            yield model_3.default.findOneAndUpdate({
-                user: req.user._id,
-            }, {
-                $set: {
-                    products: []
-                }
-            });
-            order.token = transaction.token;
-            order.url_redirect = transaction.redirect_url;
-            yield order.save();
-            // transaction token                
-            res.status(200).json({ url: transaction.redirect_url, token: transaction.token, });
-        }));
-    }
-    catch (error) {
-        console.log(error);
-        next(error);
-    }
-});
-exports.createOrder = createOrder;
-const getOrders = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const orders = yield model_1.default.find({ user: req.user._id }).sort({ createdAt: -1 });
-        res.status(200).json(orders);
-    }
-    catch (error) {
-        next(error);
-    }
-});
-exports.getOrders = getOrders;
-const updateOrder = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        if (req.user.role !== 'admin') {
-            res.status(401).json({ message: 'Unauthorized' });
-            return;
+            {
+                id: 'discount',
+                price: -(payload.discount || 0),
+                quantity: 1,
+                name: 'Discount'
+            }
+        ],
+    };
+    const transaction = yield snap.createTransaction(parameter);
+    yield model_3.default.findOneAndUpdate({ user: req.user._id }, { $set: { products: [] } });
+    order.token = transaction.token;
+    order.url_redirect = transaction.redirect_url;
+    yield order.save();
+    const response = response_1.ApiResponse.success({
+        url: transaction.redirect_url,
+        token: transaction.token,
+    }, 'Order created successfully');
+    res.status(200).json(response);
+}));
+exports.getOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { skip, limit, page, status } = req.query;
+    const filter = { user: req.user._id };
+    if (status && typeof status === 'string' && status !== 'all') {
+        const statusLower = status.toLowerCase();
+        if (statusLower === 'completed' || statusLower === 'paid') {
+            filter.status_payment = { $in: ['completed', 'paid', 'settlement'] };
         }
-        const status_delivery = req.body.status_delivery;
-        yield model_1.default.findByIdAndUpdate(req.params.id, { status_delivery }, { runValidators: true });
-        res.status(200).json({ message: 'Order updated' });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-exports.updateOrder = updateOrder;
-const getAllOrders = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        if (req.user.role === 'admin') {
-            const { skip, limit } = req.query;
-            const orders = yield model_1.default.find({ payment_method: { $ne: '', $exists: true } }).sort({ createdAt: -1 }).skip(parseInt(skip)).limit(parseInt(limit)).skip(parseInt(skip));
-            const count = yield model_1.default.countDocuments({ payment_method: { $ne: '', $exists: true } });
-            const page = count === 0 ? 1 : Math.ceil(count / 12);
-            res.status(200).json({ orders, count, page });
-            return;
+        else if (statusLower === 'pending') {
+            filter.status_payment = { $in: ['pending', 'waiting'] };
+        }
+        else if (statusLower === 'cancelled' || statusLower === 'expired') {
+            filter.status_payment = { $in: ['cancelled', 'cancel', 'expire', 'expired', 'deny', 'failure'] };
         }
         else {
-            res.status(401).json({ message: 'Unauthorized' });
+            filter.status_payment = status;
         }
     }
-    catch (error) {
-        next(error);
+    const count = yield model_1.default.countDocuments(filter);
+    let query = model_1.default.find(filter)
+        .populate('order_items._id')
+        .sort({ createdAt: -1 });
+    const isPaginated = page !== undefined || limit !== undefined || skip !== undefined;
+    const parsedLimit = isPaginated ? Math.max(1, parseInt(limit) || 5) : 0;
+    const parsedPage = isPaginated ? Math.max(1, parseInt(page) || 1) : 1;
+    const parsedSkip = skip !== undefined ? Math.max(0, parseInt(skip) || 0) : (parsedPage - 1) * parsedLimit;
+    if (isPaginated && parsedLimit > 0) {
+        query = query.skip(parsedSkip).limit(parsedLimit);
     }
-});
-exports.getAllOrders = getAllOrders;
-const getOrder = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const order = yield model_1.default.findById(req.params.id);
-        res.status(200).json(order);
+    const orders = yield query;
+    const totalPages = isPaginated && parsedLimit > 0 ? Math.max(1, Math.ceil(count / parsedLimit)) : 1;
+    const response = response_1.ApiResponse.success(orders, 'User orders retrieved successfully');
+    response.orders = orders;
+    response.count = count;
+    response.total = count;
+    response.totalPages = totalPages;
+    response.currentPage = parsedPage;
+    response.limit = parsedLimit > 0 ? parsedLimit : count;
+    res.status(200).json(response);
+}));
+exports.updateOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const status_delivery = req.body.status_delivery;
+    const order = yield model_1.default.findByIdAndUpdate(req.params.id, { status_delivery }, { new: true, runValidators: true });
+    if (!order) {
+        throw new errors_1.NotFoundError('Order not found');
     }
-    catch (error) {
-        next(error);
+    const response = response_1.ApiResponse.success({ order, message: 'Order updated' }, 'Order updated successfully');
+    res.status(200).json(response);
+}));
+exports.getAllOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { skip, limit } = req.query;
+    const parsedSkip = parseInt(skip) || 0;
+    const parsedLimit = parseInt(limit) || 12;
+    const orders = yield model_1.default.find({ payment_method: { $ne: '', $exists: true } })
+        .sort({ createdAt: -1 })
+        .skip(parsedSkip)
+        .limit(parsedLimit);
+    const count = yield model_1.default.countDocuments({ payment_method: { $ne: '', $exists: true } });
+    const page = count === 0 ? 1 : Math.ceil(count / 12);
+    const response = response_1.ApiResponse.success({ orders, count, page }, 'Orders retrieved successfully');
+    res.status(200).json(response);
+}));
+exports.getOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const order = yield model_1.default.findById(req.params.id).populate('order_items._id');
+    if (!order) {
+        throw new errors_1.NotFoundError('Order not found');
     }
-});
-exports.getOrder = getOrder;
-const handleMidtransNotification = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+    const response = response_1.ApiResponse.success(order, 'Order retrieved successfully');
+    res.status(200).json(response);
+}));
+const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const snap = new midtrans_client_1.default.Snap({
             isProduction: false,
             serverKey: process.env.MIDTRANS_SERVER_KEY,
         });
         const notification = req.body;
-        const statusResponse = yield snap.transaction.notification(notification);
-        const orderId = statusResponse.order_id;
+        let statusResponse = notification;
+        try {
+            statusResponse = yield snap.transaction.notification(notification);
+        }
+        catch (_a) {
+            statusResponse = notification;
+        }
+        const rawOrderId = String(statusResponse.order_id || '');
+        const cleanOrderId = rawOrderId.split('-')[0];
         const transactionStatus = statusResponse.transaction_status;
         const fraudStatus = statusResponse.fraud_status;
-        const invoice = yield model_4.default.findOne({ order: orderId });
-        // Lakukan tindakan berdasarkan status transaksi
+        const isCleanIdValid = mongoose_1.default.Types.ObjectId.isValid(cleanOrderId);
+        const order = (isCleanIdValid ? yield model_1.default.findById(cleanOrderId) : null) ||
+            (yield model_1.default.findOne({ token: statusResponse.transaction_id })) ||
+            (yield model_1.default.findOne({ token: rawOrderId }));
+        if (!order) {
+            return res.status(200).send('OK');
+        }
+        const resolvedOrderId = order._id;
+        const invoice = yield model_4.default.findOne({ order: resolvedOrderId });
+        const existingDetails = order.payment_details || {};
+        const mergedDetails = Object.assign(Object.assign(Object.assign({}, existingDetails), statusResponse), { actions: (statusResponse.actions && statusResponse.actions.length > 0) ? statusResponse.actions : existingDetails.actions, qr_string: statusResponse.qr_string || existingDetails.qr_string, va_numbers: (statusResponse.va_numbers && statusResponse.va_numbers.length > 0) ? statusResponse.va_numbers : existingDetails.va_numbers, permata_va_number: statusResponse.permata_va_number || existingDetails.permata_va_number, bill_key: statusResponse.bill_key || existingDetails.bill_key, biller_code: statusResponse.biller_code || existingDetails.biller_code, payment_code: statusResponse.payment_code || existingDetails.payment_code });
+        order.payment_method = statusResponse.payment_type || order.payment_method;
+        order.payment_details = mergedDetails;
         if (transactionStatus === 'capture') {
             if (fraudStatus === 'accept') {
-                yield model_1.default.findByIdAndUpdate(orderId, {
-                    status_payment: 'completed',
-                    payment_method: statusResponse.payment_type,
-                }, {
-                    runValidators: true,
-                });
-                console.log(invoice);
+                order.status_payment = 'completed';
                 if (invoice) {
                     invoice.payment_method = statusResponse.payment_type;
                     invoice.status_payment = 'completed';
+                    invoice.payment_details = mergedDetails;
                     yield invoice.save();
                 }
             }
         }
         else if (transactionStatus === 'settlement') {
-            // Transaksi sukses
-            yield model_1.default.findByIdAndUpdate(orderId, {
-                status_payment: 'completed',
-                payment_method: statusResponse.payment_type,
-            }, {
-                runValidators: true,
-            });
+            order.status_payment = 'completed';
             if (invoice) {
                 invoice.payment_method = statusResponse.payment_type;
                 invoice.status_payment = 'completed';
+                invoice.payment_details = mergedDetails;
                 yield invoice.save();
             }
         }
-        else if (transactionStatus === 'deny') {
-            yield model_1.default.findByIdAndUpdate(orderId, {
-                status_payment: 'cancelled',
-                payment_method: statusResponse.payment_type,
-                status_delivery: 'cancelled',
-            }, {
-                runValidators: true,
-            }); // Transaksi ditolak            
+        else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
+            order.status_payment = 'cancelled';
+            order.status_delivery = 'cancelled';
             if (invoice) {
                 invoice.payment_method = statusResponse.payment_type;
                 invoice.status_payment = 'cancelled';
-                yield invoice.save();
-            }
-        }
-        else if (transactionStatus === 'cancel' || transactionStatus === 'expire') {
-            // Transaksi dibatalkan
-            yield model_1.default.findByIdAndUpdate(orderId, {
-                status_payment: 'cancelled',
-                payment_method: statusResponse.payment_type,
-                status_delivery: 'cancelled',
-            }, {
-                runValidators: true,
-            });
-            if (invoice) {
-                invoice.payment_method = statusResponse.payment_type;
-                invoice.status_payment = 'cancelled';
+                invoice.payment_details = mergedDetails;
                 yield invoice.save();
             }
         }
         else if (transactionStatus === 'pending') {
-            yield model_1.default.findByIdAndUpdate(orderId, {
-                status_payment: 'pending',
-                payment_method: statusResponse.payment_type,
-            }, {
-                runValidators: true
-            });
-            // Transaksi pending            
+            order.status_payment = 'pending';
             if (invoice) {
                 invoice.payment_method = statusResponse.payment_type;
                 invoice.status_payment = 'pending';
+                invoice.payment_details = mergedDetails;
                 yield invoice.save();
             }
         }
-        else {
-            invoice.status_payment = 'cancelled';
-            invoice.status_delivery = 'cancelled';
-            invoice.payment_method = 'cancelled';
-            yield invoice.save();
-        }
+        yield order.save();
         res.status(200).send('OK');
     }
     catch (error) {
-        next(error);
+        console.error('[Midtrans Webhook Error]:', error);
+        res.status(200).send('OK');
     }
 });
 exports.handleMidtransNotification = handleMidtransNotification;
+exports.chargeCoreApi = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const coreApi = new midtrans_client_1.default.CoreApi({
+        isProduction: false,
+        serverKey: process.env.MIDTRANS_SERVER_KEY,
+        clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+    (0, exports.applyMidtransNotificationOverride)(coreApi, ((_a = req.body) === null || _a === void 0 ? void 0 : _a.override_notification_url) || req.headers['x-override-notification']);
+    const payload = Object.assign(Object.assign({}, req.body), { user: req.user._id });
+    let order = null;
+    let isExistingOrder = false;
+    if (payload.order_id) {
+        order = yield model_1.default.findOne({ _id: payload.order_id, user: req.user._id }).populate('order_items._id');
+        if (order && order.status_payment === 'pending') {
+            isExistingOrder = true;
+        }
+    }
+    let orderItems = [];
+    let orderIdStr = '';
+    let calculatedGrossAmount = 0;
+    let itemsList = [];
+    if (isExistingOrder && order) {
+        orderItems = order.order_items;
+        orderIdStr = String(order._id);
+        calculatedGrossAmount = order.total;
+        itemsList = [
+            ...orderItems.map((item) => {
+                var _a;
+                return ({
+                    id: (((_a = item._id) === null || _a === void 0 ? void 0 : _a._id) || item._id || 'item').toString().substring(0, 50),
+                    price: item.price,
+                    quantity: item.quantity || 1,
+                    name: (item.name || 'Apple Store Item').substring(0, 50),
+                });
+            }),
+            ...(order.shipping > 0 ? [{ id: 'shipping_cost', price: order.shipping, quantity: 1, name: 'Shipping Cost' }] : []),
+            ...(order.tax > 0 ? [{ id: 'tax', price: order.tax, quantity: 1, name: 'Tax' }] : []),
+            ...(order.discount > 0 ? [{ id: 'discount', price: -order.discount, quantity: 1, name: 'Discount' }] : []),
+        ];
+        const sumItems = itemsList.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+        if (sumItems > 0 && sumItems !== calculatedGrossAmount) {
+            calculatedGrossAmount = sumItems;
+            order.total = calculatedGrossAmount;
+        }
+    }
+    else {
+        const cart = yield model_3.default.findOne({ user: req.user._id }).populate('products.product');
+        const deliveryAddress = yield model_2.default.findById(payload.deliveryAddress);
+        if (!deliveryAddress) {
+            throw new errors_1.BadRequestError('Delivery address is required');
+        }
+        if (!cart || !cart.products || cart.products.length === 0) {
+            throw new errors_1.BadRequestError('Your cart is empty');
+        }
+        const validItems = cart.products.filter((item) => item && item.product && item.product._id);
+        if (validItems.length === 0) {
+            throw new errors_1.BadRequestError('Your cart does not contain valid products');
+        }
+        order = new model_1.default(Object.assign(Object.assign({}, payload), { payment_method: payload.payment_type || 'bank_transfer', status_payment: 'pending', status_delivery: 'pending', delivery_address: {
+                provinsi: deliveryAddress.provinsi,
+                kabupaten: deliveryAddress.kabupaten,
+                name: deliveryAddress.name,
+                kecamatan: deliveryAddress.kecamatan,
+                kelurahan: deliveryAddress.kelurahan,
+                detail: deliveryAddress.detail
+            } }));
+        orderItems = validItems.map((item) => ({
+            _id: item.product._id,
+            quantity: item.quantity || 1,
+            price: item.product.price,
+            name: item.product.name
+        }));
+        order.order_items = orderItems;
+        orderIdStr = String(order._id);
+        itemsList = [
+            ...orderItems.map(item => ({
+                id: item._id.toString().substring(0, 50),
+                price: item.price,
+                quantity: item.quantity,
+                name: item.name.substring(0, 50),
+            })),
+            ...(payload.shipping > 0 ? [{ id: 'shipping_cost', price: payload.shipping, quantity: 1, name: 'Shipping Cost' }] : []),
+            ...(payload.tax > 0 ? [{ id: 'tax', price: payload.tax, quantity: 1, name: 'Tax' }] : []),
+            ...(payload.discount > 0 ? [{ id: 'discount', price: -payload.discount, quantity: 1, name: 'Discount' }] : []),
+        ];
+        calculatedGrossAmount = itemsList.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
+        order.total = calculatedGrossAmount;
+    }
+    const midtransTxOrderId = isExistingOrder ? `${orderIdStr}-${Date.now().toString().slice(-4)}` : orderIdStr;
+    const parameter = {
+        payment_type: payload.payment_type || 'bank_transfer',
+        transaction_details: {
+            order_id: midtransTxOrderId,
+            gross_amount: calculatedGrossAmount,
+        },
+        customer_details: {
+            first_name: req.user.name,
+            last_name: '',
+            email: req.user.email,
+        },
+        item_details: itemsList
+    };
+    const paymentType = payload.payment_type || 'bank_transfer';
+    if (paymentType === 'bank_transfer') {
+        const bank = (payload.bank || 'bca').toLowerCase();
+        if (bank === 'mandiri' || bank === 'echannel') {
+            parameter.payment_type = 'echannel';
+            parameter.echannel = {
+                bill_info1: 'Payment For:',
+                bill_info2: `Apple Store Order #${orderIdStr.slice(-6)}`
+            };
+        }
+        else if (bank === 'permata') {
+            parameter.payment_type = 'bank_transfer';
+            parameter.bank_transfer = { bank: 'permata' };
+        }
+        else {
+            parameter.payment_type = 'bank_transfer';
+            parameter.bank_transfer = { bank };
+        }
+    }
+    else if (paymentType === 'echannel') {
+        parameter.payment_type = 'echannel';
+        parameter.echannel = {
+            bill_info1: 'Payment For:',
+            bill_info2: `Apple Store Order #${orderIdStr.slice(-6)}`
+        };
+    }
+    else if (paymentType === 'qris') {
+        parameter.payment_type = 'qris';
+        parameter.qris = { acquirer: 'gopay' };
+    }
+    else if (paymentType === 'gopay') {
+        parameter.payment_type = 'gopay';
+        parameter.gopay = {
+            enable_callback: true,
+            callback_url: 'http://localhost:3001/account/order'
+        };
+    }
+    else if (paymentType === 'cstore') {
+        parameter.payment_type = 'cstore';
+        parameter.cstore = {
+            store: payload.store || 'indomaret',
+            message: `Apple Store Order #${orderIdStr.slice(-6)}`
+        };
+    }
+    const chargeResponse = yield coreApi.charge(parameter);
+    if (!isExistingOrder) {
+        yield model_3.default.findOneAndUpdate({ user: req.user._id }, { $set: { products: [] } });
+    }
+    order.token = chargeResponse.transaction_id || chargeResponse.order_id || midtransTxOrderId;
+    order.payment_method = chargeResponse.payment_type || paymentType;
+    order.payment_details = chargeResponse;
+    if (chargeResponse.actions && chargeResponse.actions.length > 0) {
+        const qrAction = chargeResponse.actions.find((a) => a.name === 'generate-qr-code');
+        const deepLinkAction = chargeResponse.actions.find((a) => a.name === 'deeplink-redirect');
+        if (qrAction) {
+            order.url_redirect = qrAction.url;
+        }
+        else if (deepLinkAction) {
+            order.url_redirect = deepLinkAction.url;
+        }
+    }
+    yield order.save();
+    yield order.populate('order_items._id');
+    const response = response_1.ApiResponse.success({
+        status: 'success',
+        order,
+        charge: chargeResponse
+    }, 'Payment charged successfully');
+    res.status(200).json(response);
+}));
+exports.getPaymentStatus = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const orderId = req.params.id;
+    const order = yield model_1.default.findById(orderId).populate('order_items._id');
+    if (!order) {
+        throw new errors_1.NotFoundError('Order not found');
+    }
+    const coreApi = new midtrans_client_1.default.CoreApi({
+        isProduction: false,
+        serverKey: process.env.MIDTRANS_SERVER_KEY,
+        clientKey: process.env.MIDTRANS_CLIENT_KEY,
+    });
+    const orderIdStr = String(order._id);
+    const identifier = order.token || orderIdStr;
+    let midtransStatus = null;
+    try {
+        midtransStatus = yield coreApi.transaction.status(identifier);
+    }
+    catch (_a) {
+        try {
+            midtransStatus = yield coreApi.transaction.status(orderIdStr);
+        }
+        catch (innerErr) {
+            console.warn('Midtrans status check skipped or not yet available:', innerErr);
+        }
+    }
+    if (midtransStatus) {
+        const transactionStatus = midtransStatus.transaction_status;
+        const fraudStatus = midtransStatus.fraud_status;
+        const invoice = yield model_4.default.findOne({ order: order._id });
+        const existingDetails = order.payment_details || {};
+        const mergedDetails = Object.assign(Object.assign(Object.assign({}, existingDetails), midtransStatus), { actions: (midtransStatus.actions && midtransStatus.actions.length > 0) ? midtransStatus.actions : existingDetails.actions, qr_string: midtransStatus.qr_string || existingDetails.qr_string, va_numbers: (midtransStatus.va_numbers && midtransStatus.va_numbers.length > 0) ? midtransStatus.va_numbers : existingDetails.va_numbers, permata_va_number: midtransStatus.permata_va_number || existingDetails.permata_va_number, bill_key: midtransStatus.bill_key || existingDetails.bill_key, biller_code: midtransStatus.biller_code || existingDetails.biller_code, payment_code: midtransStatus.payment_code || existingDetails.payment_code });
+        order.payment_details = mergedDetails;
+        if (transactionStatus === 'settlement' || (transactionStatus === 'capture' && fraudStatus === 'accept')) {
+            order.status_payment = 'completed';
+            if (invoice) {
+                invoice.payment_method = midtransStatus.payment_type;
+                invoice.status_payment = 'completed';
+                invoice.payment_details = mergedDetails;
+                yield invoice.save();
+            }
+        }
+        else if (['cancel', 'expire', 'deny'].includes(transactionStatus)) {
+            order.status_payment = 'cancelled';
+            if (invoice) {
+                invoice.payment_method = midtransStatus.payment_type;
+                invoice.status_payment = 'cancelled';
+                invoice.payment_details = mergedDetails;
+                yield invoice.save();
+            }
+        }
+        yield order.save();
+    }
+    const response = response_1.ApiResponse.success({
+        status: order.status_payment,
+        midtransStatus: (midtransStatus === null || midtransStatus === void 0 ? void 0 : midtransStatus.transaction_status) || order.status_payment,
+        order,
+        charge: order.payment_details || midtransStatus
+    }, 'Payment status retrieved');
+    res.status(200).json(response);
+}));
+exports.autoGenerateOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { generateSingleRandomOrder } = yield Promise.resolve().then(() => __importStar(require('../../services/orderScheduler')));
+    const result = yield generateSingleRandomOrder();
+    const response = response_1.ApiResponse.success(result, 'Daily order generated successfully');
+    res.status(201).json(response);
+}));

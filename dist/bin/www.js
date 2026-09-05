@@ -23,11 +23,14 @@ const index_1 = __importDefault(require("../database/index"));
 // /**
 //  * Listen on provided port, on all network interfaces.
 //  */
+const orderScheduler_1 = require("../services/orderScheduler");
 index_1.default.on('open', () => {
     console.log('Connected to MongoDB');
+    (0, orderScheduler_1.startDailyOrderScheduler)();
 });
-app_1.default.listen(3000, () => {
-    console.log('Server is running on port 3000');
+const port = process.env.PORT || 5000;
+app_1.default.listen(port, () => {
+    console.log(`Server is running on port http://localhost:${port}`);
 });
 // server.listen(port, () => {
 //   console.log(`Server is running on port http://localhost:${port}`);

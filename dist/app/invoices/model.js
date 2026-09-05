@@ -7,6 +7,7 @@ const invoiceSchema = new mongoose_1.Schema({
     order: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Order' },
     status_delivery: { type: String, default: 'pending', enum: ['pending', 'delivered', 'cancelled', 'process'] },
     payment_method: { type: String },
+    payment_details: { type: mongoose_1.Schema.Types.Mixed },
     shipping: { type: Number },
     delivery_address: {
         provinsi: { type: String, required: true },

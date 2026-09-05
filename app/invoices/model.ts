@@ -13,6 +13,7 @@ export interface Invoice extends Document {
     status_payment: string;
     discount: number;
     status_delivery: string;
+    payment_details?: any;
 }
 
 const invoiceSchema = new Schema<Invoice>({
@@ -21,6 +22,7 @@ const invoiceSchema = new Schema<Invoice>({
     order: { type: Schema.Types.ObjectId, ref: 'Order' },
     status_delivery: { type: String, default: 'pending', enum: ['pending', 'delivered', 'cancelled', 'process'] },
     payment_method: { type: String },
+    payment_details: { type: Schema.Types.Mixed },
     shipping: { type: Number },
     delivery_address: {
         provinsi: { type: String, required: true },

@@ -1,42 +1,71 @@
-import createError from 'http-errors';
-import express from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express, { Application, Request, Response } from 'express';
 import path from 'path';
 import cookieParser from 'cookie-parser';
 import logger from 'morgan';
-import type { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+
 import routerCategories from './app/categories/router';
 import routerProducts from './app/products/router';
 import routerUsers from './app/users/router';
-import dotenv from 'dotenv';
-import { decodeToken } from './middleware/index';
-import cors from 'cors'
 import routerCarts from './app/cart/router';
 import routerLikes from './app/likes/router';
 import routerOrder from './app/orders/router';
 import routerInvoices from './app/invoices/router';
 import routerDeliveryAddresses from './app/deliveryAddress/router';
 import routerTransactions from './app/dashboard/router';
+import routerVouchers from './app/vouchers/router';
+import ErrorHandler from './middleware/errorHandler';
 
-interface CustomError extends Error {
-  status?: number;
-}
+const app: Application = express();
 
-var app = express();
+// Security middleware
+app.use(helmet({
+  crossOriginResourcePolicy: false, // Allow public image assets to be loaded by frontends
+}));
 
-// view engine setup
-app.set('views', path.join(__dirname, '/views'));
-app.set('view engine', 'ejs');
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 
-app.use(cors());
-app.use(decodeToken());
+// Request parsing & static assets
 app.use(logger('dev'));
-dotenv.config();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '/public')));
 
-// router
+// Root & Health check
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    success: true,
+    message: 'Welcome to Apple Store API',
+    data: {
+      app: 'Apple Store Backend',
+      status: 'running',
+      time: new Date().toISOString(),
+    },
+    code: 'SUCCESS',
+  });
+});
+
+app.get('/health', (_req: Request, res: Response) => {
+  res.status(200).json({
+    success: true,
+    message: 'Health check completed',
+    data: {
+      status: 'healthy',
+      time: new Date().toISOString(),
+    },
+    code: 'SUCCESS',
+  });
+});
+
+// Feature routes
 app.use('/api', routerCategories);
 app.use('/api', routerProducts);
 app.use('/api', routerCarts);
@@ -45,27 +74,14 @@ app.use('/api', routerOrder);
 app.use('/api', routerInvoices);
 app.use('/api', routerDeliveryAddresses);
 app.use('/api', routerTransactions);
+app.use('/api', routerUsers);
+app.use('/api', routerVouchers);
 app.use('/auth', routerUsers);
 
-app.use('/', (req: Request, res: Response, next: NextFunction) => {
-  res.render('index', { title: 'Express' });
-})
+// 404 Not Found Handler
+app.use(ErrorHandler.notFound);
 
-
-// catch 404 and forward to error handler
-app.use(function (req: Request, res: Response, next: NextFunction) {
-  next(createError(404));
-});
-
-// error handler
-app.use(function (err: CustomError, req: Request, res: Response, next: NextFunction) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get('env') === 'development' ? err : {};
-
-  // render the error page
-  res.status(err.status || 500);
-  res.render('error');
-});
+// Global Centralized Error Handler
+app.use(ErrorHandler.middleware);
 
 export default app;

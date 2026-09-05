@@ -14,86 +14,69 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.removeProductFromCart = exports.reduceProductCart = exports.addProductToCart = exports.getCart = void 0;
 const model_1 = __importDefault(require("./model"));
-const getCart = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-        const cart = yield model_1.default.findOne({ user: req.user._id }).populate('products.product');
-        if (cart) {
-            return res.status(200).json(cart);
-        }
-        return res.status(404).json({ message: 'Cart not found' });
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+exports.getCart = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    let cart = yield model_1.default.findOne({ user: req.user._id }).populate('products.product');
+    // Auto-create cart if it does not exist yet for this user
+    if (!cart) {
+        cart = new model_1.default({ user: req.user._id, products: [] });
+        yield cart.save();
     }
-    catch (error) {
-        console.log(error);
-        next(error);
+    const response = response_1.ApiResponse.success(cart, 'Cart retrieved successfully');
+    res.status(200).json(response);
+}));
+exports.addProductToCart = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { productId, quantity = 1 } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body);
+    let cart = yield model_1.default.findOne({ user: req.user._id });
+    if (!cart) {
+        cart = new model_1.default({ user: req.user._id, products: [] });
     }
-});
-exports.getCart = getCart;
-const addProductToCart = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { productId, quantity } = req.body;
-        const cart = yield model_1.default.findOne({ user: req.user._id });
-        if (cart) {
-            const exisProduct = cart.products.find(product => product.product.toString() === productId);
-            if (exisProduct) {
-                exisProduct.quantity += quantity;
-                yield cart.save();
-                return res.status(200).json({ message: 'Product added to cart', cart });
-            }
-            else {
-                cart.products.push({ product: productId, quantity });
-                yield cart.save();
-                return res.status(200).json({ message: 'Product added to cart', cart });
-            }
-        }
-        return res.status(404).json({ message: 'Cart not found' });
+    const exisProduct = cart.products.find(product => product.product.toString() === productId);
+    if (exisProduct) {
+        exisProduct.quantity += Number(quantity);
     }
-    catch (error) {
-        console.log(error);
-        next(error);
+    else {
+        cart.products.push({ product: productId, quantity: Number(quantity) });
     }
-});
-exports.addProductToCart = addProductToCart;
-const reduceProductCart = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { productId } = req.body;
-        const cart = yield model_1.default.findOne({ user: req.user._id });
-        if (cart) {
-            const exisProduct = cart.products.find(product => product.product.toString() === productId);
-            if (exisProduct) {
-                if (exisProduct.quantity === 1) {
-                    const cart = yield model_1.default.findOneAndUpdate({ user: req.user._id }, { $pull: { products: { product: productId } } }, { new: true });
-                    return res.status(200).json({ message: 'Product removed from cart', cart });
-                }
-                else {
-                    exisProduct.quantity -= 1;
-                    yield cart.save();
-                    return res.status(200).json({ message: 'Product reduced from cart', cart });
-                }
-            }
-        }
-        return res.status(404).json({ message: 'Cart not found' });
+    yield cart.save();
+    const populatedCart = yield model_1.default.findById(cart._id).populate('products.product');
+    const response = response_1.ApiResponse.success(populatedCart || cart, 'Product added to cart');
+    res.status(200).json(response);
+}));
+exports.reduceProductCart = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { productId } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body);
+    const cart = yield model_1.default.findOne({ user: req.user._id });
+    if (!cart) {
+        throw new errors_1.NotFoundError('Cart not found');
     }
-    catch (error) {
-        console.log(error);
-        next(error);
+    const exisProduct = cart.products.find(product => product.product.toString() === productId);
+    if (!exisProduct) {
+        throw new errors_1.NotFoundError('Product not in cart');
     }
-});
-exports.reduceProductCart = reduceProductCart;
-const removeProductFromCart = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { productId } = req.body;
-        const cart = yield model_1.default.findOneAndUpdate({ user: req.user._id }, { $pull: { products: { product: productId } } }, { new: true });
-        if (cart) {
-            return res.status(200).json({ message: 'Product removed from cart', cart });
-        }
-        return res.status(404).json({ message: 'Cart not found' });
+    if (exisProduct.quantity <= 1) {
+        const updatedCart = yield model_1.default.findOneAndUpdate({ user: req.user._id }, { $pull: { products: { product: productId } } }, { new: true }).populate('products.product');
+        const response = response_1.ApiResponse.success(updatedCart, 'Product removed from cart');
+        return res.status(200).json(response);
     }
-    catch (error) {
-        console.log(error);
-        next(error);
+    else {
+        exisProduct.quantity -= 1;
+        yield cart.save();
+        const populatedCart = yield model_1.default.findById(cart._id).populate('products.product');
+        const response = response_1.ApiResponse.success(populatedCart || cart, 'Product quantity reduced');
+        return res.status(200).json(response);
     }
-});
-exports.removeProductFromCart = removeProductFromCart;
+}));
+exports.removeProductFromCart = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { productId } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body);
+    const cart = yield model_1.default.findOneAndUpdate({ user: req.user._id }, { $pull: { products: { product: productId } } }, { new: true }).populate('products.product');
+    if (!cart) {
+        throw new errors_1.NotFoundError('Cart not found');
+    }
+    const response = response_1.ApiResponse.success(cart, 'Product removed from cart');
+    res.status(200).json(response);
+}));

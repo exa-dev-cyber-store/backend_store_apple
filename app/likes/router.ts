@@ -1,10 +1,12 @@
-import express from "express";
-import type { Router } from "express";
+import express, { Router, RequestHandler } from "express";
+import { getLikes, Likes } from "./controller";
+import { authenticate } from "../../middleware/auth";
+import { validate } from "../../utils/validator";
+import { toggleLikeSchema } from "./validation";
+
 const router: Router = express.Router();
 
-import { getLikes, Likes } from "./controller";
+router.get('/likes', authenticate as RequestHandler, getLikes);
+router.post('/likes', authenticate as RequestHandler, validate(toggleLikeSchema), Likes);
 
-router.get('/likes', getLikes);
-router.post('/likes', Likes);
-
-export default router as Router;
+export default router;

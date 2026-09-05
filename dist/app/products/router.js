@@ -7,18 +7,20 @@ const express_1 = __importDefault(require("express"));
 const controller_1 = require("./controller");
 const multer_1 = __importDefault(require("multer"));
 const os_1 = __importDefault(require("os"));
-const middleware_1 = require("../../middleware");
+const auth_1 = require("../../middleware/auth");
+const validator_1 = require("../../utils/validator");
+const validation_1 = require("./validation");
 const router = express_1.default.Router();
 const upload = (0, multer_1.default)({ dest: os_1.default.tmpdir() });
-router.get('/products/:id', controller_1.getProduct);
-router.get('/products', controller_1.getProducts);
-router.post('/products', (0, middleware_1.checkRole)('admin'), upload.fields([
+router.get('/products', (0, validator_1.validate)(validation_1.listProductsSchema), controller_1.getProducts);
+router.get('/products/:id', (0, validator_1.validate)(validation_1.productIdParamSchema), controller_1.getProduct);
+router.post('/products', auth_1.authenticate, (0, auth_1.authorize)('admin'), upload.fields([
     { name: 'image_thumbnail' },
     { name: 'image_details' }
-]), controller_1.createProduct);
-router.put('/products/:id', (0, middleware_1.checkRole)('admin'), upload.fields([
+]), (0, validator_1.validate)(validation_1.createProductSchema), controller_1.createProduct);
+router.put('/products/:id', auth_1.authenticate, (0, auth_1.authorize)('admin'), upload.fields([
     { name: 'image_thumbnail' },
     { name: 'image_details' }
-]), controller_1.updateProduct);
-router.delete('/products/:id', (0, middleware_1.checkRole)('admin'), controller_1.deleteProduct);
+]), (0, validator_1.validate)(validation_1.updateProductSchema), controller_1.updateProduct);
+router.delete('/products/:id', auth_1.authenticate, (0, auth_1.authorize)('admin'), (0, validator_1.validate)(validation_1.productIdParamSchema), controller_1.deleteProduct);
 exports.default = router;

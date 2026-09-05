@@ -2,6 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const controller_1 = require("./controller");
+const auth_1 = require("../../middleware/auth");
+const validator_1 = require("../../utils/validator");
+const validation_1 = require("./validation");
 const router = (0, express_1.Router)();
-router.get('/dashboard', controller_1.getDataDashboard);
+router.get('/dashboard', auth_1.authenticate, (0, auth_1.authorize)('admin'), (0, validator_1.validate)(validation_1.dashboardQuerySchema), controller_1.getDataDashboard);
 exports.default = router;

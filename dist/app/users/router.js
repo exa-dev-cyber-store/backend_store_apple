@@ -40,12 +40,22 @@ const express_1 = __importDefault(require("express"));
 const controller_1 = require("./controller");
 const passport_1 = __importDefault(require("passport"));
 const passportLocal = __importStar(require("passport-local"));
+const validator_1 = require("../../utils/validator");
+const validation_1 = require("./validation");
+const auth_1 = require("../../middleware/auth");
 const LocalStrategy = passportLocal.Strategy;
 const router = express_1.default.Router();
 passport_1.default.use(new LocalStrategy({ usernameField: "email" }, controller_1.localStrategy));
-router.post('/register', controller_1.createUser);
-router.post('/login', controller_1.login);
-router.post('/signin', controller_1.loginGoogle);
+// Auth routes
+router.post('/register', (0, validator_1.validate)(validation_1.registerSchema), controller_1.createUser);
+router.post('/login', (0, validator_1.validate)(validation_1.loginSchema), controller_1.login);
+router.post('/signin', (0, validator_1.validate)(validation_1.loginGoogleSchema), controller_1.loginGoogle);
+router.post('/google-auth', (0, validator_1.validate)(validation_1.verifyGoogleAuthSchema), controller_1.verifyGoogleAuth);
 router.post('/logout', controller_1.logout);
-router.get('/me', controller_1.me);
+router.get('/me', auth_1.authenticate, controller_1.me);
+// Admin User Management routes
+router.get('/users', auth_1.authenticate, (0, auth_1.authorize)('admin'), (0, validator_1.validate)(validation_1.listUsersSchema), controller_1.getUsers);
+router.get('/users/:id', auth_1.authenticate, (0, auth_1.authorize)('admin'), (0, validator_1.validate)(validation_1.userIdParamSchema), controller_1.getUserById);
+router.put('/users/:id/role', auth_1.authenticate, (0, auth_1.authorize)('admin'), (0, validator_1.validate)(validation_1.updateUserRoleSchema), controller_1.updateUserRole);
+router.delete('/users/:id', auth_1.authenticate, (0, auth_1.authorize)('admin'), (0, validator_1.validate)(validation_1.userIdParamSchema), controller_1.deleteUser);
 exports.default = router;

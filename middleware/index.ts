@@ -1,54 +1,9 @@
-import jwt from 'jsonwebtoken';
-import Users, { User } from './../app/users/model';
-import { NextFunction, Request, Response } from "express";
-import { getToken } from "../utils";
+import { authenticate, optionalAuth, authorize, checkOwnership } from './auth';
 
-export const decodeToken = () => {
-    return async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const token = getToken(req);
-            if (!token) {
-                return next()
-            }
-            if (token) {
-                const user: User | null = await Users.findOne({ token: { $in: [token] } });
-                if (!user) {
-                    return next()
-                }
-                jwt.verify(token, process.env.SECRET_JWT_KEY as string, { algorithms: ['HS384'] }, (err, decoded) => {
-                    if (err) {
-                        return next()
-                    }
-                    req.user = decoded as { _id: string; name: string; email: string; role: string; };
-                    return next();
-                });
-            }
-        } catch (error) {
-            return next(error)
-        }
-    }
-}
+export * from './auth';
+export * from './errorHandler';
 
-
-
-export const checkRole = (role: string) => {
-    return (req: Request, res: Response, next: NextFunction) => {
-        if (req.user) {
-            if (req.user.role === role) {
-                return next();
-            }
-        }
-        return res.status(403).json({ message: 'Forbidden' });
-    }
-}
-
-export const checkIsUserData = (_id: string) => {
-    return (req: Request, res: Response, next: NextFunction) => {
-        if (req.user) {
-            if (req.user._id === _id) {
-                return next();
-            }
-        }
-        return res.status(403).json({ message: 'Forbidden' });
-    }
-};
+// Backwards compatibility aliases
+export const decodeToken = () => optionalAuth;
+export const checkRole = (role: string) => authorize(role);
+export const checkIsUserData = (idField: string = '_id') => checkOwnership(idField);

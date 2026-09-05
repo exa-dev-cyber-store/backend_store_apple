@@ -22,6 +22,7 @@ export interface Order extends Document {
     status_payment: string;
     discount: number;
     status_delivery: string;
+    payment_details?: any;
 };
 
 const orderSchema = new Schema<Order>({
@@ -29,6 +30,7 @@ const orderSchema = new Schema<Order>({
     tax: { type: Number },
     status_delivery: { type: String, default: 'pending', enum: ['pending', 'delivered', 'cancelled', 'process'] },
     payment_method: { type: String },
+    payment_details: { type: Schema.Types.Mixed },
     shipping: { type: Number },
     token: { type: String },
     order_items: [
@@ -61,6 +63,7 @@ orderSchema.pre('save', async function (next) {
             total: this.total,
             tax: this.tax,
             payment_method: this.payment_method,
+            payment_details: (this as any).payment_details,
             shipping: this.shipping,
             discount: this.discount,
             order: this._id,

@@ -4,8 +4,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
-const router = express_1.default.Router();
 const controller_1 = require("./controller");
-router.get('/likes', controller_1.getLikes);
-router.post('/likes', controller_1.Likes);
+const auth_1 = require("../../middleware/auth");
+const validator_1 = require("../../utils/validator");
+const validation_1 = require("./validation");
+const router = express_1.default.Router();
+router.get('/likes', auth_1.authenticate, controller_1.getLikes);
+router.post('/likes', auth_1.authenticate, (0, validator_1.validate)(validation_1.toggleLikeSchema), controller_1.Likes);
 exports.default = router;

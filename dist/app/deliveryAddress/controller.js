@@ -13,79 +13,51 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteDeliveryAddress = exports.updateDeliveryAddress = exports.createDeliveryAddress = exports.getDeliveryAddress = exports.getDeliveryAddresses = void 0;
-const middleware_1 = require("../../middleware");
 const model_1 = __importDefault(require("./model"));
-const getDeliveryAddresses = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const deliveryAddresses = yield model_1.default.find({ user: req.user._id });
-        if (deliveryAddresses.length > 0) {
-            (0, middleware_1.checkIsUserData)(deliveryAddresses[0].user.toString());
-            return res.status(200).json(deliveryAddresses);
-        }
-        return res.status(404).json({ message: 'Delivery Address not found', status: 404 });
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+exports.getDeliveryAddresses = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const deliveryAddresses = yield model_1.default.find({ user: req.user._id });
+    const response = response_1.ApiResponse.success(deliveryAddresses, 'Delivery addresses retrieved successfully');
+    response.deliveryAddresses = deliveryAddresses;
+    res.status(200).json(response);
+}));
+exports.getDeliveryAddress = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const deliveryAddress = yield model_1.default.findOne({
+        _id: req.params.id,
+        user: req.user._id,
+    });
+    if (!deliveryAddress) {
+        throw new errors_1.NotFoundError('Delivery address not found');
     }
-    catch (error) {
-        console.log(error);
-        next(error);
+    const response = response_1.ApiResponse.success(deliveryAddress, 'Delivery address retrieved successfully');
+    res.status(200).json(response);
+}));
+exports.createDeliveryAddress = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const payload = Object.assign(Object.assign({}, (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body)), { user: req.user._id });
+    const deliveryAddress = yield model_1.default.create(payload);
+    const response = response_1.ApiResponse.created(deliveryAddress, 'Delivery address created successfully');
+    res.status(201).json(response);
+}));
+exports.updateDeliveryAddress = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const deliveryAddress = yield model_1.default.findOneAndUpdate({ _id: req.params.id, user: req.user._id }, { $set: (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.body) || req.body) }, { new: true, runValidators: true });
+    if (!deliveryAddress) {
+        throw new errors_1.NotFoundError('Delivery address not found');
     }
-});
-exports.getDeliveryAddresses = getDeliveryAddresses;
-const getDeliveryAddress = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const deliveryAddress = yield model_1.default.findOne({ _id: req.params.id, user: req.user._id });
-        if (deliveryAddress) {
-            (0, middleware_1.checkIsUserData)(deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.user.toString());
-            return res.status(200).json(deliveryAddress);
-        }
-        return res.status(404).json({ message: 'Delivery Address not found' });
+    const response = response_1.ApiResponse.success(deliveryAddress, 'Delivery address updated successfully');
+    res.status(200).json(response);
+}));
+exports.deleteDeliveryAddress = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const deliveryAddress = yield model_1.default.findOneAndDelete({
+        _id: req.params.id,
+        user: req.user._id,
+    });
+    if (!deliveryAddress) {
+        throw new errors_1.NotFoundError('Delivery address not found');
     }
-    catch (error) {
-        console.log(error);
-        next(error);
-    }
-});
-exports.getDeliveryAddress = getDeliveryAddress;
-const createDeliveryAddress = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const payload = Object.assign(Object.assign({}, req.body), { user: req.user._id });
-        const deliveryAddress = yield model_1.default.create(payload);
-        return res.status(201).json(deliveryAddress);
-    }
-    catch (error) {
-        console.log(error);
-        next(error);
-    }
-});
-exports.createDeliveryAddress = createDeliveryAddress;
-const updateDeliveryAddress = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const deliveryAddress = yield model_1.default.findOne({ _id: req.params.id, user: req.user._id });
-        if (deliveryAddress) {
-            (0, middleware_1.checkIsUserData)(deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.user.toString());
-            yield model_1.default.updateOne({ _id: req.params.id }, { $set: req.body });
-            return res.status(200).json(deliveryAddress);
-        }
-        return res.status(404).json({ message: 'Delivery Address not found' });
-    }
-    catch (error) {
-        console.log(error);
-        next(error);
-    }
-});
-exports.updateDeliveryAddress = updateDeliveryAddress;
-const deleteDeliveryAddress = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const deliveryAddress = yield model_1.default.findOne({ _id: req.params.id, user: req.user._id });
-        if (deliveryAddress) {
-            (0, middleware_1.checkIsUserData)(deliveryAddress === null || deliveryAddress === void 0 ? void 0 : deliveryAddress.user.toString());
-            yield model_1.default.deleteOne({ _id: req.params.id });
-            return res.status(204).json();
-        }
-        return res.status(404).json({ message: 'Delivery Address not found' });
-    }
-    catch (error) {
-        console.log(error);
-        next(error);
-    }
-});
-exports.deleteDeliveryAddress = deleteDeliveryAddress;
+    const response = response_1.ApiResponse.deleted('Delivery address deleted successfully');
+    res.status(200).json(response);
+}));

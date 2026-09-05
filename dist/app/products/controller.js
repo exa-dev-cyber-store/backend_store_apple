@@ -17,233 +17,288 @@ const model_1 = __importDefault(require("../categories/model"));
 const model_2 = __importDefault(require("./model"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
-const getProducts = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { limit = 0, skip = 0, q = '', category = '', id } = req.query;
-        let filter = {};
-        if (q) {
-            filter = Object.assign(Object.assign({}, filter), { name: { $regex: new RegExp(q, 'i') } });
-        }
-        if (category) {
-            const categoryFilter = yield model_1.default.findOne({ name: category });
-            if (categoryFilter) {
-                filter = Object.assign(Object.assign({}, filter), { category: categoryFilter._id });
-            }
-        }
-        if (id) {
-            filter = Object.assign(Object.assign({}, filter), { _id: { $ne: id } });
-        }
-        const count = yield model_2.default.countDocuments(filter);
-        const page = count === 0 ? 1 : Math.ceil(count / 12);
-        const products = yield model_2.default.find(filter)
-            .limit(Number(limit))
-            .skip(Number(skip))
-            .populate('category');
-        res.status(200).json({ count, page, products });
+const response_1 = require("../../types/response");
+const errors_1 = require("../../types/errors");
+const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+const minio_1 = require("../../utils/minio");
+exports.getProducts = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    const { limit = 0, skip = 0, q = '', category = '', id, sort, sortBy } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.query) || req.query);
+    let filter = {};
+    if (q) {
+        filter = Object.assign(Object.assign({}, filter), { name: { $regex: new RegExp(q, 'i') } });
     }
-    catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-exports.getProducts = getProducts;
-const getProduct = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const product = yield model_2.default.findById(req.params.id).populate('category');
-        if (product) {
-            res.status(200).json(product);
-        }
-        else {
-            res.status(404).json({ message: 'Product not found' });
+    if (category) {
+        const categoryFilter = yield model_1.default.findOne({ name: category });
+        if (categoryFilter) {
+            filter = Object.assign(Object.assign({}, filter), { category: categoryFilter._id });
         }
     }
-    catch (error) {
-        res.status(500).json({ message: error.message });
+    if (id) {
+        filter = Object.assign(Object.assign({}, filter), { _id: { $ne: id } });
     }
-});
-exports.getProduct = getProduct;
-const createProduct = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const payload = req.body;
-        const category = yield model_1.default.findOne({ name: payload.category });
+    let sortOption = { createdAt: -1 };
+    const activeSort = sort || sortBy;
+    if (activeSort === 'price-asc') {
+        sortOption = { price: 1 };
+    }
+    else if (activeSort === 'price-desc') {
+        sortOption = { price: -1 };
+    }
+    else if (activeSort === 'name-asc') {
+        sortOption = { name: 1 };
+    }
+    else if (activeSort === 'name-desc') {
+        sortOption = { name: -1 };
+    }
+    else if (activeSort === 'oldest') {
+        sortOption = { createdAt: 1 };
+    }
+    else {
+        sortOption = { createdAt: -1 };
+    }
+    const count = yield model_2.default.countDocuments(filter);
+    const page = count === 0 ? 1 : Math.ceil(count / 12);
+    const products = yield model_2.default.find(filter)
+        .sort(sortOption)
+        .limit(Number(limit))
+        .skip(Number(skip))
+        .populate('category');
+    const response = response_1.ApiResponse.success({ count, page, products }, 'Products retrieved successfully');
+    res.status(200).json(response);
+}));
+exports.getProduct = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const product = yield model_2.default.findById(req.params.id).populate('category');
+    if (!product) {
+        throw new errors_1.NotFoundError('Product not found');
+    }
+    const response = response_1.ApiResponse.success(product, 'Product retrieved successfully');
+    res.status(200).json(response);
+}));
+exports.createProduct = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const payload = req.body;
+    // Check category by name or ObjectId
+    let category = null;
+    if (payload.category) {
+        category = yield model_1.default.findOne({ name: payload.category });
         if (!category) {
-            res.status(400).json({ message: 'Category not found' });
-            return;
+            category = yield model_1.default.findById(payload.category).catch(() => null);
         }
-        else {
-            if (category) {
-                payload.category = category._id;
+    }
+    if (!category) {
+        throw new errors_1.BadRequestError('Category not found');
+    }
+    else {
+        payload.category = category._id;
+    }
+    let image_thumbnail = '';
+    let image_details = [];
+    if (req.files && typeof req.files === 'object') {
+        const files = req.files;
+        if (files.image_thumbnail && files.image_thumbnail.length > 0) {
+            const file = files.image_thumbnail[0];
+            const tmp_path = file.path;
+            const originalExt = file.originalname.split('.').pop();
+            const filename = file.filename + '.' + originalExt;
+            const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
+            try {
+                const buffer = fs_1.default.readFileSync(tmp_path);
+                yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
+                yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
+                image_thumbnail = `${minio_1.PUBLIC_URL_BASE}/images/${filename}`;
             }
+            catch (err) {
+                console.error('[MinIO] Upload error for thumbnail:', err);
+                image_thumbnail = `/${filename}`;
+            }
+            const src = fs_1.default.createReadStream(tmp_path);
+            const dest = fs_1.default.createWriteStream(target_path);
+            src.pipe(dest);
+            src.on('error', () => {
+                if (fs_1.default.existsSync(target_path)) {
+                    fs_1.default.unlinkSync(target_path);
+                }
+                dest.end();
+            });
         }
-        let image_thumbnail = '';
-        let image_details = [];
-        if (req.files && typeof req.files === 'object') {
-            const files = req.files;
-            if (files.image_thumbnail && files.image_thumbnail.length > 0) {
-                const file = files.image_thumbnail[0];
+        if (files.image_details && files.image_details.length > 0) {
+            for (const file of files.image_details) {
                 const tmp_path = file.path;
                 const originalExt = file.originalname.split('.').pop();
                 const filename = file.filename + '.' + originalExt;
                 const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
+                try {
+                    const buffer = fs_1.default.readFileSync(tmp_path);
+                    yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
+                    yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
+                    image_details.push(`${minio_1.PUBLIC_URL_BASE}/images/${filename}`);
+                }
+                catch (err) {
+                    console.error('[MinIO] Upload error for detail:', err);
+                    image_details.push(`/${filename}`);
+                }
                 const src = fs_1.default.createReadStream(tmp_path);
                 const dest = fs_1.default.createWriteStream(target_path);
                 src.pipe(dest);
-                image_thumbnail = `/${filename}`;
                 src.on('error', () => {
                     if (fs_1.default.existsSync(target_path)) {
                         fs_1.default.unlinkSync(target_path);
                     }
                     dest.end();
-                    res.status(500).json({ message: 'Failed to upload image' });
-                });
-            }
-            if (files.image_details && files.image_details.length > 0) {
-                files.image_details.forEach((file) => {
-                    const tmp_path = file.path;
-                    const originalExt = file.originalname.split('.').pop();
-                    const filename = file.filename + '.' + originalExt;
-                    const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-                    const src = fs_1.default.createReadStream(tmp_path);
-                    const dest = fs_1.default.createWriteStream(target_path);
-                    src.pipe(dest);
-                    image_details.push(`/${filename}`);
-                    src.on('error', () => {
-                        if (fs_1.default.existsSync(target_path)) {
-                            fs_1.default.unlinkSync(target_path);
-                        }
-                        dest.end();
-                        res.status(500).json({ message: 'Failed to upload image' });
-                    });
                 });
             }
         }
-        const product = new model_2.default(Object.assign(Object.assign({}, req.body), { image_thumbnail,
-            image_details }));
-        yield product.save();
-        res.status(201).json(product);
     }
-    catch (error) {
-        res.status(500).json({ message: error.message });
+    const product = new model_2.default(Object.assign(Object.assign({}, req.body), { image_thumbnail,
+        image_details }));
+    yield product.save();
+    const response = response_1.ApiResponse.created(product, 'Product created successfully');
+    res.status(201).json(response);
+}));
+exports.updateProduct = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const product = yield model_2.default.findById(req.params.id);
+    if (!product) {
+        throw new errors_1.NotFoundError('Product not found');
     }
-});
-exports.createProduct = createProduct;
-const updateProduct = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const product = yield model_2.default.findById(req.params.id);
-        console.log('product');
-        if (product) {
-            const payload = req.body;
-            if (payload.category) {
-                const category = yield model_1.default.findOne({ name: payload.category });
-                if (!category) {
-                    res.status(400).json({ message: 'Category not found' });
-                    return;
-                }
-                else {
-                    if (category._id) {
-                        payload.category = category._id;
-                    }
-                }
-            }
-            let image_thumbnail = '';
-            let image_details = [];
-            if (req.files) {
-                const files = req.files;
-                // saat update image_thumbnail harus berikan juga req.body.image_thumbnail yang lama                                
-                if (files.image_thumbnail && files.image_thumbnail.length > 0) {
-                    // ini new imagenya
-                    fs_1.default.unlinkSync(path_1.default.resolve(__dirname, '../../' + `public/images${product.image_thumbnail}`));
-                    const file = files.image_thumbnail[0];
-                    const tmp_path = file.path;
-                    const originalExt = file.originalname.split('.').pop();
-                    const filename = file.filename + '.' + originalExt;
-                    const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-                    const src = fs_1.default.createReadStream(tmp_path);
-                    const dest = fs_1.default.createWriteStream(target_path);
-                    src.pipe(dest);
-                    image_thumbnail = `/${filename}`;
-                    src.on('error', () => {
-                        if (fs_1.default.existsSync(target_path)) {
-                            fs_1.default.unlinkSync(target_path);
-                        }
-                        dest.end();
-                        res.status(500).json({ message: 'Failed to updated image' });
-                    });
-                }
-                // saat update image_details harus berikan juga req.body.image_details[] yang lama                                
-                if (req.body.image_details) {
-                    if (req.body.image_details.length > 0) {
-                        product.image_details.forEach((image_detail) => {
-                            if (!req.body.image_details.includes(image_detail)) {
-                                fs_1.default.unlinkSync(path_1.default.resolve(__dirname, '../../' + `public/images${image_detail}`));
-                            }
-                            else {
-                                image_details.push(image_detail);
-                            }
-                        });
-                    }
-                    else {
-                        product.image_details.forEach((image_detail) => {
-                            fs_1.default.unlinkSync(path_1.default.resolve(__dirname, '../../' + `public/images${image_detail}`));
-                        });
-                    }
-                }
-                if (!req.body.image_details) {
-                    product.image_details.forEach((image_detail) => {
-                        fs_1.default.unlinkSync(path_1.default.resolve(__dirname, '../../' + `public/images${image_detail}`));
-                    });
-                }
-                if (files.image_details && files.image_details.length > 0) {
-                    files.image_details.forEach((file) => {
-                        const tmp_path = file.path;
-                        const originalExt = file.originalname.split('.').pop();
-                        const filename = file.filename + '.' + originalExt;
-                        const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-                        const src = fs_1.default.createReadStream(tmp_path);
-                        const dest = fs_1.default.createWriteStream(target_path);
-                        src.pipe(dest);
-                        image_details.push(`/${filename}`);
-                        src.on('error', () => {
-                            if (fs_1.default.existsSync(target_path)) {
-                                fs_1.default.unlinkSync(target_path);
-                            }
-                            dest.end();
-                            res.status(500).json({ message: 'Failed to updated image' });
-                        });
-                    });
-                }
-            }
-            const updatedProduct = yield model_2.default.findByIdAndUpdate(req.params.id, Object.assign(Object.assign({}, payload), { image_thumbnail: image_thumbnail.length > 0 ? image_thumbnail : product.image_thumbnail, image_details: image_details.length > 0 ? image_details : product.image_details }), { new: true, runValidators: true });
-            res.status(200).json(updatedProduct);
+    const payload = req.body;
+    if (payload.category) {
+        let category = yield model_1.default.findOne({ name: payload.category });
+        if (!category) {
+            category = yield model_1.default.findById(payload.category).catch(() => null);
         }
-    }
-    catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-exports.updateProduct = updateProduct;
-const deleteProduct = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const product = yield model_2.default.findById(req.params.id);
-        if (product) {
-            if (product.image_thumbnail) {
-                const image_thumbnail = path_1.default.resolve(__dirname, '../../' + `public/images/${product.image_thumbnail}`);
-                fs_1.default.unlinkSync(image_thumbnail);
-            }
-            if (product.image_details) {
-                product.image_details.forEach((image_detail) => {
-                    const image = path_1.default.resolve(__dirname, '../../' + `public/images/${image_detail}`);
-                    fs_1.default.unlinkSync(image);
-                });
-            }
-            yield model_2.default.findByIdAndDelete(req.params.id);
-            res.status(204).json();
+        if (!category) {
+            throw new errors_1.BadRequestError('Category not found');
         }
         else {
-            res.status(404).json({ message: 'Product not found' });
+            payload.category = category._id;
         }
     }
-    catch (error) {
-        res.status(500).json({ message: error.message });
+    let image_thumbnail = '';
+    let image_details = [];
+    if (req.files) {
+        const files = req.files;
+        if (files.image_thumbnail && files.image_thumbnail.length > 0) {
+            if (product.image_thumbnail) {
+                const oldThumbFile = path_1.default.basename(product.image_thumbnail);
+                const oldThumb = path_1.default.resolve(__dirname, '../../' + `public/images/${oldThumbFile}`);
+                if (fs_1.default.existsSync(oldThumb)) {
+                    fs_1.default.unlinkSync(oldThumb);
+                }
+                (0, minio_1.deleteFromMinio)(`images/${oldThumbFile}`).catch(() => { });
+                (0, minio_1.deleteFromMinio)(oldThumbFile).catch(() => { });
+            }
+            const file = files.image_thumbnail[0];
+            const tmp_path = file.path;
+            const originalExt = file.originalname.split('.').pop();
+            const filename = file.filename + '.' + originalExt;
+            const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
+            try {
+                const buffer = fs_1.default.readFileSync(tmp_path);
+                yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
+                yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
+                image_thumbnail = `${minio_1.PUBLIC_URL_BASE}/images/${filename}`;
+            }
+            catch (err) {
+                console.error('[MinIO] Upload error for updated thumbnail:', err);
+                image_thumbnail = `/${filename}`;
+            }
+            const src = fs_1.default.createReadStream(tmp_path);
+            const dest = fs_1.default.createWriteStream(target_path);
+            src.pipe(dest);
+            src.on('error', () => {
+                if (fs_1.default.existsSync(target_path)) {
+                    fs_1.default.unlinkSync(target_path);
+                }
+                dest.end();
+            });
+        }
+        if (req.body.image_details) {
+            if (Array.isArray(req.body.image_details) && req.body.image_details.length > 0) {
+                product.image_details.forEach((image_detail) => {
+                    if (!req.body.image_details.includes(image_detail)) {
+                        const oldDetailFile = path_1.default.basename(image_detail);
+                        const oldDetail = path_1.default.resolve(__dirname, '../../' + `public/images/${oldDetailFile}`);
+                        if (fs_1.default.existsSync(oldDetail)) {
+                            fs_1.default.unlinkSync(oldDetail);
+                        }
+                        (0, minio_1.deleteFromMinio)(`images/${oldDetailFile}`).catch(() => { });
+                        (0, minio_1.deleteFromMinio)(oldDetailFile).catch(() => { });
+                    }
+                    else {
+                        image_details.push(image_detail);
+                    }
+                });
+            }
+            else {
+                product.image_details.forEach((image_detail) => {
+                    const oldDetailFile = path_1.default.basename(image_detail);
+                    const oldDetail = path_1.default.resolve(__dirname, '../../' + `public/images/${oldDetailFile}`);
+                    if (fs_1.default.existsSync(oldDetail)) {
+                        fs_1.default.unlinkSync(oldDetail);
+                    }
+                    (0, minio_1.deleteFromMinio)(`images/${oldDetailFile}`).catch(() => { });
+                    (0, minio_1.deleteFromMinio)(oldDetailFile).catch(() => { });
+                });
+            }
+        }
+        if (files.image_details && files.image_details.length > 0) {
+            for (const file of files.image_details) {
+                const tmp_path = file.path;
+                const originalExt = file.originalname.split('.').pop();
+                const filename = file.filename + '.' + originalExt;
+                const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
+                try {
+                    const buffer = fs_1.default.readFileSync(tmp_path);
+                    yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
+                    yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
+                    image_details.push(`${minio_1.PUBLIC_URL_BASE}/images/${filename}`);
+                }
+                catch (err) {
+                    console.error('[MinIO] Upload error for updated detail:', err);
+                    image_details.push(`/${filename}`);
+                }
+                const src = fs_1.default.createReadStream(tmp_path);
+                const dest = fs_1.default.createWriteStream(target_path);
+                src.pipe(dest);
+                src.on('error', () => {
+                    if (fs_1.default.existsSync(target_path)) {
+                        fs_1.default.unlinkSync(target_path);
+                    }
+                    dest.end();
+                });
+            }
+        }
     }
-});
-exports.deleteProduct = deleteProduct;
+    const updatedProduct = yield model_2.default.findByIdAndUpdate(req.params.id, Object.assign(Object.assign({}, payload), { image_thumbnail: image_thumbnail.length > 0 ? image_thumbnail : product.image_thumbnail, image_details: image_details.length > 0 ? image_details : product.image_details }), { new: true, runValidators: true });
+    const response = response_1.ApiResponse.success(updatedProduct, 'Product updated successfully');
+    res.status(200).json(response);
+}));
+exports.deleteProduct = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const product = yield model_2.default.findById(req.params.id);
+    if (!product) {
+        throw new errors_1.NotFoundError('Product not found');
+    }
+    if (product.image_thumbnail) {
+        const thumbFile = path_1.default.basename(product.image_thumbnail);
+        const image_thumbnail = path_1.default.resolve(__dirname, '../../' + `public/images/${thumbFile}`);
+        if (fs_1.default.existsSync(image_thumbnail)) {
+            fs_1.default.unlinkSync(image_thumbnail);
+        }
+        (0, minio_1.deleteFromMinio)(`images/${thumbFile}`).catch(() => { });
+        (0, minio_1.deleteFromMinio)(thumbFile).catch(() => { });
+    }
+    if (product.image_details) {
+        product.image_details.forEach((image_detail) => {
+            const detailFile = path_1.default.basename(image_detail);
+            const image = path_1.default.resolve(__dirname, '../../' + `public/images/${detailFile}`);
+            if (fs_1.default.existsSync(image)) {
+                fs_1.default.unlinkSync(image);
+            }
+            (0, minio_1.deleteFromMinio)(`images/${detailFile}`).catch(() => { });
+            (0, minio_1.deleteFromMinio)(detailFile).catch(() => { });
+        });
+    }
+    yield model_2.default.findByIdAndDelete(req.params.id);
+    const response = response_1.ApiResponse.deleted('Product deleted successfully');
+    res.status(200).json(response);
+}));
