@@ -10,8 +10,19 @@ import { NotFoundError, BadRequestError } from "../../types/errors";
 import ErrorHandler from "../../middleware/errorHandler";
 
 export const applyMidtransNotificationOverride = (client: any, customOverrideUrl?: string) => {
-    const overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
+    let overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
     const appendUrl = (process.env.MIDTRANS_APPEND_NOTIFICATION_URL || '').trim();
+
+    if (overrideUrl) {
+        try {
+            const parsed = new URL(overrideUrl);
+            if (!parsed.hostname) {
+                overrideUrl = '';
+            }
+        } catch {
+            overrideUrl = '';
+        }
+    }
 
     if (overrideUrl && client?.httpClient?.http_client) {
         client.httpClient.http_client.defaults.headers.common = client.httpClient.http_client.defaults.headers.common || {};
@@ -321,8 +332,9 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
     let order: Order | null = null;
     let isExistingOrder = false;
 
-    if (payload.order_id) {
-        order = await Orders.findOne({ _id: payload.order_id, user: req.user!._id }).populate('order_items._id');
+    const targetOrderId = payload.order_id || payload.orderId;
+    if (targetOrderId) {
+        order = await Orders.findOne({ _id: targetOrderId, user: req.user!._id }).populate('order_items._id');
         if (order && order.status_payment === 'pending') {
             isExistingOrder = true;
         }
@@ -372,7 +384,7 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
 
         order = new Orders({
             ...payload,
-            payment_method: payload.payment_type || 'bank_transfer',
+            payment_method: payload.payment_type || payload.paymentType || 'bank_transfer',
             status_payment: 'pending',
             status_delivery: 'pending',
             delivery_address: {
@@ -411,9 +423,10 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
     }
 
     const midtransTxOrderId = isExistingOrder ? `${orderIdStr}-${Date.now().toString().slice(-4)}` : orderIdStr;
+    const paymentType = payload.payment_type || payload.paymentType || 'bank_transfer';
 
     const parameter: any = {
-        payment_type: payload.payment_type || 'bank_transfer',
+        payment_type: paymentType,
         transaction_details: {
             order_id: midtransTxOrderId,
             gross_amount: calculatedGrossAmount,
@@ -425,8 +438,6 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
         },
         item_details: itemsList
     };
-
-    const paymentType = payload.payment_type || 'bank_transfer';
     if (paymentType === 'bank_transfer') {
         const bank = (payload.bank || 'bca').toLowerCase();
         if (bank === 'mandiri' || bank === 'echannel') {

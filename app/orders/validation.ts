@@ -11,10 +11,22 @@ export const createOrderSchema: ValidateSchema = {
 
 export const chargeOrderSchema: ValidateSchema = {
   body: z.object({
-    orderId: z.string().min(1, 'Order ID is required'),
-    paymentType: z.string().min(1, 'Payment type is required'),
+    orderId: z.string().optional(),
+    order_id: z.string().optional(),
+    deliveryAddress: z.string().optional(),
+    paymentType: z.string().optional(),
+    payment_type: z.string().optional(),
     bank: z.string().optional(),
     store: z.string().optional(),
+    subTotal: numeric(0).optional(),
+    tax: numeric(0).optional(),
+    shipping: numeric(0).optional(),
+    discount: numeric(0).optional(),
+    total: numeric(0).optional(),
+    override_notification_url: z.string().optional(),
+  }).refine((data) => Boolean(data.orderId || data.order_id || data.deliveryAddress), {
+    message: 'Either orderId (or order_id) or deliveryAddress is required',
+    path: ['orderId'],
   }),
 };
 

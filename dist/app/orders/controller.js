@@ -57,8 +57,19 @@ const errors_1 = require("../../types/errors");
 const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
 const applyMidtransNotificationOverride = (client, customOverrideUrl) => {
     var _a, _b;
-    const overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
+    let overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
     const appendUrl = (process.env.MIDTRANS_APPEND_NOTIFICATION_URL || '').trim();
+    if (overrideUrl) {
+        try {
+            const parsed = new URL(overrideUrl);
+            if (!parsed.hostname) {
+                overrideUrl = '';
+            }
+        }
+        catch (_c) {
+            overrideUrl = '';
+        }
+    }
     if (overrideUrl && ((_a = client === null || client === void 0 ? void 0 : client.httpClient) === null || _a === void 0 ? void 0 : _a.http_client)) {
         client.httpClient.http_client.defaults.headers.common = client.httpClient.http_client.defaults.headers.common || {};
         client.httpClient.http_client.defaults.headers.common['X-Override-Notification'] = overrideUrl;
@@ -321,8 +332,9 @@ exports.chargeCoreApi = errorHandler_1.default.catchAsync((req, res) => __awaite
     const payload = Object.assign(Object.assign({}, req.body), { user: req.user._id });
     let order = null;
     let isExistingOrder = false;
-    if (payload.order_id) {
-        order = yield model_1.default.findOne({ _id: payload.order_id, user: req.user._id }).populate('order_items._id');
+    const targetOrderId = payload.order_id || payload.orderId;
+    if (targetOrderId) {
+        order = yield model_1.default.findOne({ _id: targetOrderId, user: req.user._id }).populate('order_items._id');
         if (order && order.status_payment === 'pending') {
             isExistingOrder = true;
         }
@@ -368,7 +380,7 @@ exports.chargeCoreApi = errorHandler_1.default.catchAsync((req, res) => __awaite
         if (validItems.length === 0) {
             throw new errors_1.BadRequestError('Your cart does not contain valid products');
         }
-        order = new model_1.default(Object.assign(Object.assign({}, payload), { payment_method: payload.payment_type || 'bank_transfer', status_payment: 'pending', status_delivery: 'pending', delivery_address: {
+        order = new model_1.default(Object.assign(Object.assign({}, payload), { payment_method: payload.payment_type || payload.paymentType || 'bank_transfer', status_payment: 'pending', status_delivery: 'pending', delivery_address: {
                 provinsi: deliveryAddress.provinsi,
                 kabupaten: deliveryAddress.kabupaten,
                 name: deliveryAddress.name,
@@ -399,8 +411,9 @@ exports.chargeCoreApi = errorHandler_1.default.catchAsync((req, res) => __awaite
         order.total = calculatedGrossAmount;
     }
     const midtransTxOrderId = isExistingOrder ? `${orderIdStr}-${Date.now().toString().slice(-4)}` : orderIdStr;
+    const paymentType = payload.payment_type || payload.paymentType || 'bank_transfer';
     const parameter = {
-        payment_type: payload.payment_type || 'bank_transfer',
+        payment_type: paymentType,
         transaction_details: {
             order_id: midtransTxOrderId,
             gross_amount: calculatedGrossAmount,
@@ -412,7 +425,6 @@ exports.chargeCoreApi = errorHandler_1.default.catchAsync((req, res) => __awaite
         },
         item_details: itemsList
     };
-    const paymentType = payload.payment_type || 'bank_transfer';
     if (paymentType === 'bank_transfer') {
         const bank = (payload.bank || 'bca').toLowerCase();
         if (bank === 'mandiri' || bank === 'echannel') {
