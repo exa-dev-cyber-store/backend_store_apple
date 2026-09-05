@@ -65,8 +65,35 @@ export const createOrder = ErrorHandler.catchAsync(async (req: Request, res: Res
         throw new BadRequestError('Cart is empty');
     }
 
+    const validItems = cart.products.filter((item: any) => item && item.product && item.product._id);
+    if (validItems.length === 0) {
+        throw new BadRequestError('Cart does not contain valid products');
+    }
+
+    const orderItems: OrderItem[] = validItems.map((item: any) => ({
+        _id: item.product._id,
+        quantity: item.quantity || 1,
+        price: item.product.price,
+        name: item.product.name
+    }));
+
+    // Server-side authoritative calculation
+    const calculatedSubTotal = orderItems.reduce((acc: number, curr: any) => acc + (curr.price * curr.quantity), 0);
+    const calculatedTax = Math.round(calculatedSubTotal * 0.05);
+    const calculatedShipping = calculatedSubTotal > 5000000 ? 0 : 25000;
+    const calculatedDiscount = Math.min(calculatedSubTotal, Math.max(0, Number(payload.discount) || 0));
+    const calculatedTotal = Math.max(0, calculatedSubTotal + calculatedTax + calculatedShipping - calculatedDiscount);
+
     const order: Order = new Orders({
-        ...payload,
+        user: req.user!._id,
+        order_items: orderItems,
+        tax: calculatedTax,
+        shipping: calculatedShipping,
+        discount: calculatedDiscount,
+        total: calculatedTotal,
+        payment_method: 'snap',
+        status_payment: 'pending',
+        status_delivery: 'pending',
         delivery_address: {
             provinsi: deliveryAddress.provinsi,
             kabupaten: deliveryAddress.kabupaten,
@@ -77,21 +104,22 @@ export const createOrder = ErrorHandler.catchAsync(async (req: Request, res: Res
         }
     });
 
-    const orderItems: OrderItem[] = cart.products.map((item: any) => ({
-        _id: item.product._id,
-        quantity: item.quantity,
-        price: item.product.price,
-        name: item.product.name
-    }));
-    order.order_items = orderItems;
+    const itemsList = [
+        ...orderItems.map((item) => ({
+            id: item._id.toString().substring(0, 50),
+            price: item.price,
+            quantity: item.quantity,
+            name: item.name.substring(0, 50),
+        })),
+        ...(calculatedShipping > 0 ? [{ id: 'shipping_cost', price: calculatedShipping, quantity: 1, name: 'Shipping Cost' }] : []),
+        ...(calculatedTax > 0 ? [{ id: 'tax', price: calculatedTax, quantity: 1, name: 'Tax' }] : []),
+        ...(calculatedDiscount > 0 ? [{ id: 'discount', price: -calculatedDiscount, quantity: 1, name: 'Discount' }] : []),
+    ];
 
     const parameter = {
         transaction_details: {
-            order_id: order._id,
-            shipping_cost: payload.shipping || 0,
-            tax: payload.tax || 0,
-            discount: payload.discount || 0,
-            gross_amount: (payload.total || 0) - (payload.discount || 0)
+            order_id: String((order as any)._id),
+            gross_amount: calculatedTotal,
         },
         credit_card: {
             secure: true
@@ -102,27 +130,7 @@ export const createOrder = ErrorHandler.catchAsync(async (req: Request, res: Res
             name: req.user!.name,
             email: req.user!.email,
         },
-        item_details: [
-            ...orderItems,
-            {
-                id: 'shipping_cost',
-                price: payload.shipping || 0,
-                quantity: 1,
-                name: 'Shipping Cost'
-            },
-            {
-                id: 'tax',
-                price: payload.tax || 0,
-                quantity: 1,
-                name: 'Tax'
-            },
-            {
-                id: 'discount',
-                price: -(payload.discount || 0),
-                quantity: 1,
-                name: 'Discount'
-            }
-        ],
+        item_details: itemsList,
     };
 
     const transaction: any = await snap.createTransaction(parameter);
@@ -382,8 +390,27 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
             throw new BadRequestError('Your cart does not contain valid products');
         }
 
+        orderItems = validItems.map((item: any) => ({
+            _id: item.product._id,
+            quantity: item.quantity || 1,
+            price: item.product.price,
+            name: item.product.name
+        }));
+
+        // Server-side authoritative calculation
+        const calculatedSubTotal = orderItems.reduce((acc: number, curr: any) => acc + (curr.price * curr.quantity), 0);
+        const calculatedTax = Math.round(calculatedSubTotal * 0.05);
+        const calculatedShipping = calculatedSubTotal > 5000000 ? 0 : 25000;
+        const calculatedDiscount = Math.min(calculatedSubTotal, Math.max(0, Number(payload.discount) || 0));
+        const calculatedTotal = Math.max(0, calculatedSubTotal + calculatedTax + calculatedShipping - calculatedDiscount);
+
         order = new Orders({
-            ...payload,
+            user: req.user!._id,
+            order_items: orderItems,
+            tax: calculatedTax,
+            shipping: calculatedShipping,
+            discount: calculatedDiscount,
+            total: calculatedTotal,
             payment_method: payload.payment_type || payload.paymentType || 'bank_transfer',
             status_payment: 'pending',
             status_delivery: 'pending',
@@ -397,14 +424,6 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
             }
         });
 
-        orderItems = validItems.map((item: any) => ({
-            _id: item.product._id,
-            quantity: item.quantity || 1,
-            price: item.product.price,
-            name: item.product.name
-        }));
-        order.order_items = orderItems;
-
         orderIdStr = String((order as any)._id);
         itemsList = [
             ...orderItems.map(item => ({
@@ -413,13 +432,12 @@ export const chargeCoreApi = ErrorHandler.catchAsync(async (req: Request, res: R
                 quantity: item.quantity,
                 name: item.name.substring(0, 50),
             })),
-            ...(payload.shipping > 0 ? [{ id: 'shipping_cost', price: payload.shipping, quantity: 1, name: 'Shipping Cost' }] : []),
-            ...(payload.tax > 0 ? [{ id: 'tax', price: payload.tax, quantity: 1, name: 'Tax' }] : []),
-            ...(payload.discount > 0 ? [{ id: 'discount', price: -payload.discount, quantity: 1, name: 'Discount' }] : []),
+            ...(calculatedShipping > 0 ? [{ id: 'shipping_cost', price: calculatedShipping, quantity: 1, name: 'Shipping Cost' }] : []),
+            ...(calculatedTax > 0 ? [{ id: 'tax', price: calculatedTax, quantity: 1, name: 'Tax' }] : []),
+            ...(calculatedDiscount > 0 ? [{ id: 'discount', price: -calculatedDiscount, quantity: 1, name: 'Discount' }] : []),
         ];
 
-        calculatedGrossAmount = itemsList.reduce((acc, curr) => acc + (curr.price * curr.quantity), 0);
-        order.total = calculatedGrossAmount;
+        calculatedGrossAmount = calculatedTotal;
     }
 
     const midtransTxOrderId = isExistingOrder ? `${orderIdStr}-${Date.now().toString().slice(-4)}` : orderIdStr;
