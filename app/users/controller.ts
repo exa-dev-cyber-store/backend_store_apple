@@ -76,10 +76,18 @@ export const login = (req: Request, res: Response, next: NextFunction) => {
 
 export const loginGoogle = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
     const { email } = req.body as { email: string };
-    const user: User | null = await Users.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
+    let user: User | null = await Users.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
 
     if (!user) {
-        throw new UnauthorizedError('User with this email not found');
+        const randomPassword = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const hashedPassword = await bcrypt.hash(randomPassword, 10);
+        user = new Users({
+            name: email.split('@')[0],
+            email,
+            password: hashedPassword,
+            role: 'user',
+        });
+        await user.save();
     }
 
     const payload = { _id: user._id, email: user.email, name: user.name, role: user.role };

@@ -21,6 +21,7 @@ const response_1 = require("../../types/response");
 const errors_1 = require("../../types/errors");
 const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
 const minio_1 = require("../../utils/minio");
+const image_1 = require("../../utils/image");
 exports.getProducts = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const { limit = 0, skip = 0, q = '', category = '', id, sort, sortBy } = (((_a = req.validated) === null || _a === void 0 ? void 0 : _a.query) || req.query);
@@ -97,55 +98,13 @@ exports.createProduct = errorHandler_1.default.catchAsync((req, res) => __awaite
         const files = req.files;
         if (files.image_thumbnail && files.image_thumbnail.length > 0) {
             const file = files.image_thumbnail[0];
-            const tmp_path = file.path;
-            const originalExt = file.originalname.split('.').pop();
-            const filename = file.filename + '.' + originalExt;
-            const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-            try {
-                const buffer = fs_1.default.readFileSync(tmp_path);
-                yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
-                image_thumbnail = `${minio_1.PUBLIC_URL_BASE}/images/${filename}`;
-            }
-            catch (err) {
-                console.error('[MinIO] Upload error for thumbnail:', err);
-                image_thumbnail = `/${filename}`;
-            }
-            const src = fs_1.default.createReadStream(tmp_path);
-            const dest = fs_1.default.createWriteStream(target_path);
-            src.pipe(dest);
-            src.on('error', () => {
-                if (fs_1.default.existsSync(target_path)) {
-                    fs_1.default.unlinkSync(target_path);
-                }
-                dest.end();
-            });
+            const processed = yield (0, image_1.processAndUploadImage)(file);
+            image_thumbnail = processed.url;
         }
         if (files.image_details && files.image_details.length > 0) {
             for (const file of files.image_details) {
-                const tmp_path = file.path;
-                const originalExt = file.originalname.split('.').pop();
-                const filename = file.filename + '.' + originalExt;
-                const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-                try {
-                    const buffer = fs_1.default.readFileSync(tmp_path);
-                    yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                    yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
-                    image_details.push(`${minio_1.PUBLIC_URL_BASE}/images/${filename}`);
-                }
-                catch (err) {
-                    console.error('[MinIO] Upload error for detail:', err);
-                    image_details.push(`/${filename}`);
-                }
-                const src = fs_1.default.createReadStream(tmp_path);
-                const dest = fs_1.default.createWriteStream(target_path);
-                src.pipe(dest);
-                src.on('error', () => {
-                    if (fs_1.default.existsSync(target_path)) {
-                        fs_1.default.unlinkSync(target_path);
-                    }
-                    dest.end();
-                });
+                const processed = yield (0, image_1.processAndUploadImage)(file);
+                image_details.push(processed.url);
             }
         }
     }
@@ -188,29 +147,8 @@ exports.updateProduct = errorHandler_1.default.catchAsync((req, res) => __awaite
                 (0, minio_1.deleteFromMinio)(oldThumbFile).catch(() => { });
             }
             const file = files.image_thumbnail[0];
-            const tmp_path = file.path;
-            const originalExt = file.originalname.split('.').pop();
-            const filename = file.filename + '.' + originalExt;
-            const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-            try {
-                const buffer = fs_1.default.readFileSync(tmp_path);
-                yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
-                image_thumbnail = `${minio_1.PUBLIC_URL_BASE}/images/${filename}`;
-            }
-            catch (err) {
-                console.error('[MinIO] Upload error for updated thumbnail:', err);
-                image_thumbnail = `/${filename}`;
-            }
-            const src = fs_1.default.createReadStream(tmp_path);
-            const dest = fs_1.default.createWriteStream(target_path);
-            src.pipe(dest);
-            src.on('error', () => {
-                if (fs_1.default.existsSync(target_path)) {
-                    fs_1.default.unlinkSync(target_path);
-                }
-                dest.end();
-            });
+            const processed = yield (0, image_1.processAndUploadImage)(file);
+            image_thumbnail = processed.url;
         }
         if (req.body.image_details) {
             if (Array.isArray(req.body.image_details) && req.body.image_details.length > 0) {
@@ -243,29 +181,8 @@ exports.updateProduct = errorHandler_1.default.catchAsync((req, res) => __awaite
         }
         if (files.image_details && files.image_details.length > 0) {
             for (const file of files.image_details) {
-                const tmp_path = file.path;
-                const originalExt = file.originalname.split('.').pop();
-                const filename = file.filename + '.' + originalExt;
-                const target_path = path_1.default.resolve(__dirname, '../../' + `public/images/${filename}`);
-                try {
-                    const buffer = fs_1.default.readFileSync(tmp_path);
-                    yield (0, minio_1.uploadToMinio)(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                    yield (0, minio_1.uploadToMinio)(buffer, filename, file.mimetype || 'image/jpeg');
-                    image_details.push(`${minio_1.PUBLIC_URL_BASE}/images/${filename}`);
-                }
-                catch (err) {
-                    console.error('[MinIO] Upload error for updated detail:', err);
-                    image_details.push(`/${filename}`);
-                }
-                const src = fs_1.default.createReadStream(tmp_path);
-                const dest = fs_1.default.createWriteStream(target_path);
-                src.pipe(dest);
-                src.on('error', () => {
-                    if (fs_1.default.existsSync(target_path)) {
-                        fs_1.default.unlinkSync(target_path);
-                    }
-                    dest.end();
-                });
+                const processed = yield (0, image_1.processAndUploadImage)(file);
+                image_details.push(processed.url);
             }
         }
     }

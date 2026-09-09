@@ -7,6 +7,7 @@ import { ApiResponse } from '../../types/response';
 import { NotFoundError, BadRequestError } from '../../types/errors';
 import ErrorHandler from '../../middleware/errorHandler';
 import { uploadToMinio, deleteFromMinio, PUBLIC_URL_BASE } from '../../utils/minio';
+import { processAndUploadImage } from '../../utils/image';
 
 interface QueryParams {
     limit?: number;
@@ -108,57 +109,13 @@ export const createProduct = ErrorHandler.catchAsync(async (req: Request, res: R
         const files = req.files as { [fieldname: string]: Express.Multer.File[] };
         if (files.image_thumbnail && files.image_thumbnail.length > 0) {
             const file = files.image_thumbnail[0];
-            const tmp_path = file.path;
-            const originalExt = file.originalname.split('.').pop();
-            const filename = file.filename + '.' + originalExt;
-            const target_path = path.resolve(__dirname, '../../' + `public/images/${filename}`);
-            
-            try {
-                const buffer = fs.readFileSync(tmp_path);
-                await uploadToMinio(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                await uploadToMinio(buffer, filename, file.mimetype || 'image/jpeg');
-                image_thumbnail = `${PUBLIC_URL_BASE}/images/${filename}`;
-            } catch (err) {
-                console.error('[MinIO] Upload error for thumbnail:', err);
-                image_thumbnail = `/${filename}`;
-            }
-
-            const src = fs.createReadStream(tmp_path);
-            const dest = fs.createWriteStream(target_path);
-            src.pipe(dest);
-            src.on('error', () => {
-                if (fs.existsSync(target_path)) {
-                    fs.unlinkSync(target_path);
-                }
-                dest.end();
-            });
+            const processed = await processAndUploadImage(file);
+            image_thumbnail = processed.url;
         }
         if (files.image_details && files.image_details.length > 0) {
             for (const file of files.image_details) {
-                const tmp_path = file.path;
-                const originalExt = file.originalname.split('.').pop();
-                const filename = file.filename + '.' + originalExt;
-                const target_path = path.resolve(__dirname, '../../' + `public/images/${filename}`);
-
-                try {
-                    const buffer = fs.readFileSync(tmp_path);
-                    await uploadToMinio(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                    await uploadToMinio(buffer, filename, file.mimetype || 'image/jpeg');
-                    image_details.push(`${PUBLIC_URL_BASE}/images/${filename}`);
-                } catch (err) {
-                    console.error('[MinIO] Upload error for detail:', err);
-                    image_details.push(`/${filename}`);
-                }
-
-                const src = fs.createReadStream(tmp_path);
-                const dest = fs.createWriteStream(target_path);
-                src.pipe(dest);
-                src.on('error', () => {
-                    if (fs.existsSync(target_path)) {
-                        fs.unlinkSync(target_path);
-                    }
-                    dest.end();
-                });
+                const processed = await processAndUploadImage(file);
+                image_details.push(processed.url);
             }
         }
     }
@@ -208,30 +165,8 @@ export const updateProduct = ErrorHandler.catchAsync(async (req: Request, res: R
                 deleteFromMinio(oldThumbFile).catch(() => {});
             }
             const file = files.image_thumbnail[0];
-            const tmp_path = file.path;
-            const originalExt = file.originalname.split('.').pop();
-            const filename = file.filename + '.' + originalExt;
-            const target_path = path.resolve(__dirname, '../../' + `public/images/${filename}`);
-
-            try {
-                const buffer = fs.readFileSync(tmp_path);
-                await uploadToMinio(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                await uploadToMinio(buffer, filename, file.mimetype || 'image/jpeg');
-                image_thumbnail = `${PUBLIC_URL_BASE}/images/${filename}`;
-            } catch (err) {
-                console.error('[MinIO] Upload error for updated thumbnail:', err);
-                image_thumbnail = `/${filename}`;
-            }
-
-            const src = fs.createReadStream(tmp_path);
-            const dest = fs.createWriteStream(target_path);
-            src.pipe(dest);
-            src.on('error', () => {
-                if (fs.existsSync(target_path)) {
-                    fs.unlinkSync(target_path);
-                }
-                dest.end();
-            });
+            const processed = await processAndUploadImage(file);
+            image_thumbnail = processed.url;
         }
 
         if (req.body.image_details) {
@@ -264,30 +199,8 @@ export const updateProduct = ErrorHandler.catchAsync(async (req: Request, res: R
 
         if (files.image_details && files.image_details.length > 0) {
             for (const file of files.image_details) {
-                const tmp_path = file.path;
-                const originalExt = file.originalname.split('.').pop();
-                const filename = file.filename + '.' + originalExt;
-                const target_path = path.resolve(__dirname, '../../' + `public/images/${filename}`);
-
-                try {
-                    const buffer = fs.readFileSync(tmp_path);
-                    await uploadToMinio(buffer, `images/${filename}`, file.mimetype || 'image/jpeg');
-                    await uploadToMinio(buffer, filename, file.mimetype || 'image/jpeg');
-                    image_details.push(`${PUBLIC_URL_BASE}/images/${filename}`);
-                } catch (err) {
-                    console.error('[MinIO] Upload error for updated detail:', err);
-                    image_details.push(`/${filename}`);
-                }
-
-                const src = fs.createReadStream(tmp_path);
-                const dest = fs.createWriteStream(target_path);
-                src.pipe(dest);
-                src.on('error', () => {
-                    if (fs.existsSync(target_path)) {
-                        fs.unlinkSync(target_path);
-                    }
-                    dest.end();
-                });
+                const processed = await processAndUploadImage(file);
+                image_details.push(processed.url);
             }
         }
     }

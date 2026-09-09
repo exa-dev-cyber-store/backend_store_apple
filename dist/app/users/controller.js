@@ -89,9 +89,17 @@ const login = (req, res, next) => {
 exports.login = login;
 exports.loginGoogle = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { email } = req.body;
-    const user = yield model_1.default.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
+    let user = yield model_1.default.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
     if (!user) {
-        throw new errors_1.UnauthorizedError('User with this email not found');
+        const randomPassword = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const hashedPassword = yield bcrypt_1.default.hash(randomPassword, 10);
+        user = new model_1.default({
+            name: email.split('@')[0],
+            email,
+            password: hashedPassword,
+            role: 'user',
+        });
+        yield user.save();
     }
     const payload = { _id: user._id, email: user.email, name: user.name, role: user.role };
     const token = jsonwebtoken_1.default.sign(payload, process.env.SECRET_JWT_KEY, { expiresIn: '30d', algorithm: 'HS384' });
