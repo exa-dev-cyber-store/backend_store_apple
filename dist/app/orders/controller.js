@@ -527,10 +527,11 @@ exports.chargeCoreApi = errorHandler_1.default.catchAsync((req, res) => __awaite
         parameter.qris = { acquirer: 'gopay' };
     }
     else if (paymentType === 'gopay') {
+        const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
         parameter.payment_type = 'gopay';
         parameter.gopay = {
             enable_callback: true,
-            callback_url: 'http://localhost:3001/account/order'
+            callback_url: `${clientUrl}/account/order`
         };
     }
     else if (paymentType === 'cstore') {

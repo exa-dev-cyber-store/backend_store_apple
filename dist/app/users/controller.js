@@ -754,7 +754,7 @@ exports.forgotPassword = errorHandler_1.default.catchAsync((req, res) => __await
     const resetToken = crypto_1.default.randomBytes(32).toString('hex');
     user.resetPasswordToken = resetToken;
     user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
-    const clientUrl = process.env.CLIENT_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
+    const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
     // Send email (handles Apple Private Relay as well as Google/direct emails)
     yield emailService_1.EmailService.sendPasswordResetEmail({

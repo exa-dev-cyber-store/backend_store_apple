@@ -253,7 +253,7 @@ export class EmailService {
     const invoiceNumber = `INV-${(invoice?._id ? String(invoice._id) : orderIdStr).slice(-8).toUpperCase()}`;
     const orderRefNumber = `ORD-${orderIdStr.slice(-8).toUpperCase()}`;
 
-    const webUrl = process.env.WEB_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+    const webUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
     const invoiceUrl = `${webUrl}/account/order/${orderIdStr}`;
 
     const orderDate = new Date(order.createdAt || Date.now());
