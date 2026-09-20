@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RESPONSE_CODES = exports.HTTP_STATUS = exports.ServiceUnavailableError = exports.DatabaseError = exports.ConflictError = exports.NotFoundError = exports.ForbiddenError = exports.UnauthorizedError = exports.BadRequestError = exports.ValidationError = exports.AppError = void 0;
+exports.RESPONSE_CODES = exports.HTTP_STATUS = exports.TooManyRequestsError = exports.ServiceUnavailableError = exports.DatabaseError = exports.ConflictError = exports.NotFoundError = exports.ForbiddenError = exports.TokenExpiredError = exports.UnauthorizedError = exports.BadRequestError = exports.ValidationError = exports.AppError = void 0;
 const codes_1 = require("../constants/codes");
 Object.defineProperty(exports, "HTTP_STATUS", { enumerable: true, get: function () { return codes_1.HTTP_STATUS; } });
 Object.defineProperty(exports, "RESPONSE_CODES", { enumerable: true, get: function () { return codes_1.RESPONSE_CODES; } });
@@ -33,6 +33,12 @@ class UnauthorizedError extends AppError {
     }
 }
 exports.UnauthorizedError = UnauthorizedError;
+class TokenExpiredError extends AppError {
+    constructor(message = 'Token expired') {
+        super(message, codes_1.HTTP_STATUS.UNAUTHORIZED, codes_1.RESPONSE_CODES.TOKEN_EXPIRED, true);
+    }
+}
+exports.TokenExpiredError = TokenExpiredError;
 class ForbiddenError extends AppError {
     constructor(message = 'Forbidden') {
         super(message, codes_1.HTTP_STATUS.FORBIDDEN, codes_1.RESPONSE_CODES.FORBIDDEN, true);
@@ -63,3 +69,9 @@ class ServiceUnavailableError extends AppError {
     }
 }
 exports.ServiceUnavailableError = ServiceUnavailableError;
+class TooManyRequestsError extends AppError {
+    constructor(message = 'Too many requests. Please try again later.', details) {
+        super(message, codes_1.HTTP_STATUS.TOO_MANY_REQUESTS, codes_1.RESPONSE_CODES.TOO_MANY_REQUESTS, true, details);
+    }
+}
+exports.TooManyRequestsError = TooManyRequestsError;

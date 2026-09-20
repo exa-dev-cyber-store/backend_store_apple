@@ -21,6 +21,7 @@ const router_7 = __importDefault(require("./app/invoices/router"));
 const router_8 = __importDefault(require("./app/deliveryAddress/router"));
 const router_9 = __importDefault(require("./app/dashboard/router"));
 const router_10 = __importDefault(require("./app/vouchers/router"));
+const router_11 = __importDefault(require("./app/notifications/router"));
 const errorHandler_1 = __importDefault(require("./middleware/errorHandler"));
 const app = (0, express_1.default)();
 // Security middleware
@@ -72,6 +73,7 @@ app.use('/api', router_8.default);
 app.use('/api', router_9.default);
 app.use('/api', router_3.default);
 app.use('/api', router_10.default);
+app.use('/api', router_11.default);
 app.use('/auth', router_3.default);
 // 404 Not Found Handler
 app.use(errorHandler_1.default.notFound);

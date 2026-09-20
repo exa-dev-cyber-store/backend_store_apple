@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.autoGenerateOrder = exports.getPaymentStatus = exports.chargeCoreApi = exports.handleMidtransNotification = exports.getOrder = exports.getAllOrders = exports.updateOrder = exports.getOrders = exports.createOrder = exports.applyMidtransNotificationOverride = void 0;
+exports.autoGenerateOrder = exports.getPaymentStatus = exports.chargeCoreApi = exports.handleMidtransNotification = exports.getOrder = exports.getAllOrders = exports.updateOrder = exports.getOrders = exports.createOrder = exports.applyMidtransNotificationOverride = exports.triggerPaymentSuccessReceipt = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const midtrans_client_1 = __importDefault(require("midtrans-client"));
 const model_1 = __importDefault(require("./model"));
@@ -55,6 +55,38 @@ const model_4 = __importDefault(require("../invoices/model"));
 const response_1 = require("../../types/response");
 const errors_1 = require("../../types/errors");
 const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"));
+const service_1 = require("../notifications/service");
+const emailService_1 = require("../services/emailService");
+const triggerPaymentSuccessReceipt = (order, invoice) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        if (order.receipt_sent)
+            return;
+        order.receipt_sent = true;
+        yield order.save();
+        const populatedOrder = yield model_1.default.findById(order._id).populate('user').populate('order_items._id');
+        const userDoc = populatedOrder === null || populatedOrder === void 0 ? void 0 : populatedOrder.user;
+        if (userDoc && userDoc.email) {
+            let inv = invoice;
+            if (!inv) {
+                try {
+                    inv = yield model_4.default.findOne({ order: order._id });
+                }
+                catch (_a) {
+                    inv = null;
+                }
+            }
+            emailService_1.EmailService.sendPaymentReceiptEmail({
+                order: populatedOrder,
+                user: userDoc,
+                invoice: inv,
+            }).catch((err) => console.error('[Receipt Email Error]:', err));
+        }
+    }
+    catch (error) {
+        console.error('[Receipt Dispatch Error]:', error);
+    }
+});
+exports.triggerPaymentSuccessReceipt = triggerPaymentSuccessReceipt;
 const applyMidtransNotificationOverride = (client, customOverrideUrl) => {
     var _a, _b;
     let overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
@@ -222,11 +254,22 @@ exports.getOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter(vo
 }));
 exports.updateOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const status_delivery = req.body.status_delivery;
-    const order = yield model_1.default.findByIdAndUpdate(req.params.id, { status_delivery }, { new: true, runValidators: true });
-    if (!order) {
+    const existingOrder = yield model_1.default.findById(req.params.id);
+    if (!existingOrder) {
         throw new errors_1.NotFoundError('Order not found');
     }
-    const response = response_1.ApiResponse.success({ order, message: 'Order updated' }, 'Order updated successfully');
+    const previousStatus = existingOrder.status_delivery;
+    existingOrder.status_delivery = status_delivery;
+    yield existingOrder.save();
+    // Trigger push notification if status has changed and order has a customer user
+    if (status_delivery && status_delivery !== previousStatus && existingOrder.user) {
+        service_1.NotificationService.sendOrderDeliveryNotification({
+            orderId: String(existingOrder._id),
+            userId: existingOrder.user,
+            deliveryStatus: status_delivery,
+        }).catch((err) => console.error('Failed to dispatch delivery push notification:', err));
+    }
+    const response = response_1.ApiResponse.success({ order: existingOrder, message: 'Order updated' }, 'Order updated successfully');
     res.status(200).json(response);
 }));
 exports.getAllOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -234,6 +277,8 @@ exports.getAllOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter
     const parsedSkip = parseInt(skip) || 0;
     const parsedLimit = parseInt(limit) || 12;
     const orders = yield model_1.default.find({ payment_method: { $ne: '', $exists: true } })
+        .populate('user', 'name email avatar')
+        .populate('order_items._id')
         .sort({ createdAt: -1 })
         .skip(parsedSkip)
         .limit(parsedLimit);
@@ -243,7 +288,9 @@ exports.getAllOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter
     res.status(200).json(response);
 }));
 exports.getOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const order = yield model_1.default.findById(req.params.id).populate('order_items._id');
+    const order = yield model_1.default.findById(req.params.id)
+        .populate('user', 'name email avatar')
+        .populate('order_items._id');
     if (!order) {
         throw new errors_1.NotFoundError('Order not found');
     }
@@ -290,6 +337,7 @@ const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 
                     invoice.payment_details = mergedDetails;
                     yield invoice.save();
                 }
+                yield (0, exports.triggerPaymentSuccessReceipt)(order, invoice);
             }
         }
         else if (transactionStatus === 'settlement') {
@@ -300,6 +348,7 @@ const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 
                 invoice.payment_details = mergedDetails;
                 yield invoice.save();
             }
+            yield (0, exports.triggerPaymentSuccessReceipt)(order, invoice);
         }
         else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
             order.status_payment = 'cancelled';
@@ -557,6 +606,7 @@ exports.getPaymentStatus = errorHandler_1.default.catchAsync((req, res) => __awa
                 invoice.payment_details = mergedDetails;
                 yield invoice.save();
             }
+            yield (0, exports.triggerPaymentSuccessReceipt)(order, invoice);
         }
         else if (['cancel', 'expire', 'deny'].includes(transactionStatus)) {
             order.status_payment = 'cancelled';

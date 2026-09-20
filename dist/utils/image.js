@@ -13,6 +13,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processAndUploadImage = processAndUploadImage;
+exports.processAndUploadAvatar = processAndUploadAvatar;
 const sharp_1 = __importDefault(require("sharp"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
@@ -70,6 +71,57 @@ function processAndUploadImage(file, options) {
         }
         catch (err) {
             console.error('[MinIO] Upload error for processed WebP image:', err);
+        }
+        // Clean up temporary multer upload file
+        try {
+            if (fs_1.default.existsSync(tmp_path)) {
+                fs_1.default.unlinkSync(tmp_path);
+            }
+        }
+        catch (cleanupErr) {
+            console.warn('[Cleanup] Failed to remove tmp file:', cleanupErr);
+        }
+        return {
+            filename,
+            url,
+        };
+    });
+}
+/**
+ * Processes, crops to a fixed 1:1 square (400x400), converts to compressed WebP,
+ * and uploads user avatar to MinIO & local storage.
+ *
+ * @param file Multer uploaded file object
+ */
+function processAndUploadAvatar(file_1) {
+    return __awaiter(this, arguments, void 0, function* (file, size = 400, quality = 85) {
+        const tmp_path = file.path;
+        const rawBuffer = fs_1.default.readFileSync(tmp_path);
+        // Convert any input format to 1:1 square cover-cropped compressed WebP
+        const processedBuffer = yield (0, sharp_1.default)(rawBuffer)
+            .rotate() // auto-rotate based on EXIF orientation
+            .resize({
+            width: size,
+            height: size,
+            fit: 'cover',
+            position: 'center',
+        })
+            .webp({ quality })
+            .toBuffer();
+        const filename = `avatar-${file.filename || Date.now()}.webp`;
+        const targetDir = getImagesDir();
+        const targetPath = path_1.default.join(targetDir, filename);
+        // Save to local public/images directory
+        fs_1.default.writeFileSync(targetPath, processedBuffer);
+        // Upload to MinIO bucket
+        let url = `/${filename}`;
+        try {
+            yield (0, minio_1.uploadToMinio)(processedBuffer, `images/${filename}`, 'image/webp');
+            yield (0, minio_1.uploadToMinio)(processedBuffer, filename, 'image/webp');
+            url = `${minio_1.PUBLIC_URL_BASE}/images/${filename}`;
+        }
+        catch (err) {
+            console.error('[MinIO] Upload error for avatar WebP image:', err);
         }
         // Clean up temporary multer upload file
         try {

@@ -5,6 +5,7 @@ import { NotificationService } from './service';
 import ErrorHandler from '../../middleware/errorHandler';
 import { ApiResponse } from '../../types/response';
 import { BadRequestError, NotFoundError, UnauthorizedError } from '../../types/errors';
+import Users from '../users/model';
 
 export const getVapidPublicKey = ErrorHandler.catchAsync(async (_req: Request, res: Response) => {
   res.status(200).json(
@@ -165,10 +166,34 @@ export const markAllAsRead = ErrorHandler.catchAsync(async (req: Request, res: R
 });
 
 export const broadcastNotification = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
-  const { title, body, type, target, userId, voucherCode, discount, link } = req.body;
+  const { title, body, type, target, userId, userEmail, email, voucherCode, discount, link } = req.body;
 
   if (!title || !body) {
     throw new BadRequestError('Title and Body are required for notification');
+  }
+
+  let targetUserId = userId;
+
+  if (target === 'user') {
+    const emailToSearch = userEmail || email || (typeof userId === 'string' && userId.includes('@') ? userId : null);
+    if (emailToSearch) {
+      const foundUser = await Users.findOne({ email: emailToSearch.toLowerCase().trim() });
+      if (!foundUser) {
+        throw new NotFoundError(`User with email "${emailToSearch}" not found`);
+      }
+      targetUserId = foundUser._id;
+    } else if (userId) {
+      if (!Types.ObjectId.isValid(userId)) {
+        throw new BadRequestError('Valid User ID or Email is required for specific user target');
+      }
+      const foundUser = await Users.findById(userId);
+      if (!foundUser) {
+        throw new NotFoundError('User not found');
+      }
+      targetUserId = foundUser._id;
+    } else {
+      throw new BadRequestError('Email or User ID is required when targeting a specific user');
+    }
   }
 
   const notification = await NotificationService.sendCustomNotification({
@@ -176,7 +201,7 @@ export const broadcastNotification = ErrorHandler.catchAsync(async (req: Request
     body,
     type: type || 'voucher',
     target: target || 'all',
-    userId,
+    userId: target === 'user' ? String(targetUserId) : undefined,
     voucherCode,
     discount: discount ? Number(discount) : undefined,
     link,

@@ -20,7 +20,7 @@ const errors_1 = require("../types/errors");
  * Authenticate middleware - verifies access token and checks session
  */
 const authenticate = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+    var _a, _b, _c;
     try {
         let token;
         const authHeader = req.headers.authorization;
@@ -33,9 +33,15 @@ const authenticate = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
                 token = extracted;
             }
         }
-        // Fallback to cookie if header did not supply a valid token
+        // Fallback to cookie or query parameter (for SSE / WebSocket) if header did not supply a valid token
         if (!token && ((_a = req.cookies) === null || _a === void 0 ? void 0 : _a.token)) {
             token = req.cookies.token;
+        }
+        else if (!token && ((_b = req.cookies) === null || _b === void 0 ? void 0 : _b.jwt)) {
+            token = req.cookies.jwt;
+        }
+        else if (!token && ((_c = req.query) === null || _c === void 0 ? void 0 : _c.token)) {
+            token = String(req.query.token);
         }
         if (!token) {
             throw new errors_1.UnauthorizedError('No authorization token provided. Please log in again.');
@@ -45,6 +51,9 @@ const authenticate = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
             decoded = jsonwebtoken_1.default.verify(token, process.env.SECRET_JWT_KEY, { algorithms: ['HS384', 'HS256'] });
         }
         catch (err) {
+            if ((err === null || err === void 0 ? void 0 : err.name) === 'TokenExpiredError') {
+                throw new errors_1.TokenExpiredError('Token expired');
+            }
             throw new errors_1.UnauthorizedError((err === null || err === void 0 ? void 0 : err.message) || 'Invalid or expired token');
         }
         const user = yield model_1.default.findOne({

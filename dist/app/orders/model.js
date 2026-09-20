@@ -23,6 +23,7 @@ const orderSchema = new mongoose_1.Schema({
     payment_details: { type: mongoose_1.Schema.Types.Mixed },
     shipping: { type: Number },
     token: { type: String },
+    receipt_sent: { type: Boolean, default: false },
     order_items: [
         {
             _id: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Product' },
@@ -47,20 +48,33 @@ const orderSchema = new mongoose_1.Schema({
 orderSchema.pre('save', function (next) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const invoice = new model_1.default({
-                user: this.user,
-                delivery_address: this.delivery_address,
-                total: this.total,
-                tax: this.tax,
-                payment_method: this.payment_method,
-                payment_details: this.payment_details,
-                shipping: this.shipping,
-                discount: this.discount,
-                order: this._id,
-                status_payment: this.status_payment,
-                status_delivery: this.status_delivery
-            });
-            yield invoice.save();
+            if (this.isNew) {
+                const invoice = new model_1.default({
+                    user: this.user,
+                    delivery_address: this.delivery_address,
+                    total: this.total,
+                    tax: this.tax,
+                    payment_method: this.payment_method,
+                    payment_details: this.payment_details,
+                    shipping: this.shipping,
+                    discount: this.discount,
+                    order: this._id,
+                    status_payment: this.status_payment,
+                    status_delivery: this.status_delivery
+                });
+                yield invoice.save();
+            }
+            else {
+                // Keep existing invoice status in sync
+                yield model_1.default.findOneAndUpdate({ order: this._id }, {
+                    $set: {
+                        status_payment: this.status_payment,
+                        status_delivery: this.status_delivery,
+                        payment_method: this.payment_method,
+                        payment_details: this.payment_details,
+                    }
+                });
+            }
             next();
         }
         catch (error) {
