@@ -4,14 +4,28 @@ import {
     localStrategy,
     login,
     loginGoogle,
+    refreshAccessToken,
     logout,
     me,
+    updateProfile,
+    uploadAvatar,
     verifyGoogleAuth,
+    verifyAppleAuth,
+    getLinkedAccounts,
+    linkGoogleAccount,
+    linkAppleAccount,
+    unbindAppleAccount,
+    forgotPassword,
+    resetPassword,
     getUsers,
     getUserById,
     updateUserRole,
-    deleteUser
+    deleteUser,
+    adminCreateUser,
+    handleAppleNotifications,
 } from "./controller";
+import multer from "multer";
+import os from "os";
 import passport from 'passport';
 import * as passportLocal from 'passport-local';
 import { validate } from "../../utils/validator";
@@ -22,12 +36,18 @@ import {
     verifyGoogleAuthSchema,
     listUsersSchema,
     updateUserRoleSchema,
-    userIdParamSchema
+    userIdParamSchema,
+    createUserByAdminSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
+    linkGoogleSchema,
+    updateProfileSchema
 } from "./validation";
 import { authenticate, authorize } from "../../middleware/auth";
 
 const LocalStrategy = passportLocal.Strategy;
 const router: Router = express.Router();
+const upload = multer({ dest: os.tmpdir() });
 
 passport.use(new LocalStrategy({ usernameField: "email" }, localStrategy));
 
@@ -36,11 +56,31 @@ router.post('/register', validate(registerSchema), createUser);
 router.post('/login', validate(loginSchema), login);
 router.post('/signin', validate(loginGoogleSchema), loginGoogle);
 router.post('/google-auth', validate(verifyGoogleAuthSchema), verifyGoogleAuth);
+router.post('/apple-auth', verifyAppleAuth);
+router.post('/apple/notifications', handleAppleNotifications);
+router.post('/apple-notifications', handleAppleNotifications);
+router.post('/refresh', refreshAccessToken);
+router.post('/refresh-token', refreshAccessToken);
 router.post('/logout', logout);
 router.get('/me', authenticate, me);
+router.put('/me', authenticate, validate(updateProfileSchema), updateProfile);
+router.put('/profile', authenticate, validate(updateProfileSchema), updateProfile);
+router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);
+
+// Account Linking & Unbinding routes
+router.get('/linked-accounts', authenticate, getLinkedAccounts);
+router.post('/link/google', authenticate, validate(linkGoogleSchema), linkGoogleAccount);
+router.post('/link/apple', authenticate, linkAppleAccount);
+router.post('/unbind/apple', authenticate, unbindAppleAccount);
+
+// Forgot & Reset Password routes
+router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
+router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
+
 
 // Admin User Management routes
 router.get('/users', authenticate, authorize('admin'), validate(listUsersSchema), getUsers);
+router.post('/users', authenticate, authorize('admin'), validate(createUserByAdminSchema), adminCreateUser);
 router.get('/users/:id', authenticate, authorize('admin'), validate(userIdParamSchema), getUserById);
 router.put('/users/:id/role', authenticate, authorize('admin'), validate(updateUserRoleSchema), updateUserRole);
 router.delete('/users/:id', authenticate, authorize('admin'), validate(userIdParamSchema), deleteUser);

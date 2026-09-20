@@ -18,6 +18,7 @@ import routerInvoices from './app/invoices/router';
 import routerDeliveryAddresses from './app/deliveryAddress/router';
 import routerTransactions from './app/dashboard/router';
 import routerVouchers from './app/vouchers/router';
+import routerNotifications from './app/notifications/router';
 import ErrorHandler from './middleware/errorHandler';
 
 const app: Application = express();
@@ -76,6 +77,7 @@ app.use('/api', routerDeliveryAddresses);
 app.use('/api', routerTransactions);
 app.use('/api', routerUsers);
 app.use('/api', routerVouchers);
+app.use('/api', routerNotifications);
 app.use('/auth', routerUsers);
 
 // 404 Not Found Handler

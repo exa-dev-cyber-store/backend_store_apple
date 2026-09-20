@@ -25,12 +25,13 @@ export const loginGoogleSchema: ValidateSchema = {
 export const verifyGoogleAuthSchema: ValidateSchema = {
   body: z
     .object({
+      code: z.string().optional(),
       credential: z.string().optional(),
       token: z.string().optional(),
     })
-    .refine((data) => !!(data.credential || data.token), {
-      message: "Either credential or token is required",
-      path: ["credential"],
+    .refine((data) => !!(data.code || data.credential || data.token), {
+      message: "Either code, credential, or token is required",
+      path: ["code"],
     }),
 };
 
@@ -57,5 +58,45 @@ export const updateUserRoleSchema: ValidateSchema = {
 export const userIdParamSchema: ValidateSchema = {
   params: z.object({
     id: z.string().min(1, "User ID is required"),
+  }),
+};
+
+export const createUserByAdminSchema: ValidateSchema = {
+  body: z.object({
+    name: z.string().min(2, "Name must be at least 2 characters"),
+    email: z.string().email("Invalid email address"),
+    password: z.string().min(6, "Password must be at least 6 characters"),
+    role: z.enum(["admin", "user"]).optional(),
+  }),
+};
+
+export const forgotPasswordSchema: ValidateSchema = {
+  body: z.object({
+    email: z.string().min(1, "Email is required"),
+  }),
+};
+
+export const resetPasswordSchema: ValidateSchema = {
+  body: z.object({
+    token: z.string().min(1, "Reset token is required"),
+    password: z.string().min(6, "Password must be at least 6 characters"),
+  }),
+};
+
+export const linkGoogleSchema: ValidateSchema = {
+  body: z
+    .object({
+      credential: z.string().optional(),
+      token: z.string().optional(),
+    })
+    .refine((data) => !!(data.credential || data.token), {
+      message: "Either credential or token is required for Google account linking",
+      path: ["credential"],
+    }),
+};
+
+export const updateProfileSchema: ValidateSchema = {
+  body: z.object({
+    name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must not exceed 100 characters"),
   }),
 };

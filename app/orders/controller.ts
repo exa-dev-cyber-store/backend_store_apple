@@ -8,6 +8,36 @@ import Invoices, { Invoice } from "../invoices/model";
 import { ApiResponse } from "../../types/response";
 import { NotFoundError, BadRequestError } from "../../types/errors";
 import ErrorHandler from "../../middleware/errorHandler";
+import { NotificationService } from "../notifications/service";
+import { EmailService } from "../services/emailService";
+
+export const triggerPaymentSuccessReceipt = async (order: Order, invoice?: Invoice | null) => {
+    try {
+        if (order.receipt_sent) return;
+        order.receipt_sent = true;
+        await order.save();
+
+        const populatedOrder = await Orders.findById(order._id).populate('user').populate('order_items._id');
+        const userDoc: any = populatedOrder?.user;
+        if (userDoc && userDoc.email) {
+            let inv = invoice;
+            if (!inv) {
+                try {
+                    inv = await Invoices.findOne({ order: order._id });
+                } catch {
+                    inv = null;
+                }
+            }
+            EmailService.sendPaymentReceiptEmail({
+                order: populatedOrder,
+                user: userDoc,
+                invoice: inv,
+            }).catch((err) => console.error('[Receipt Email Error]:', err));
+        }
+    } catch (error) {
+        console.error('[Receipt Dispatch Error]:', error);
+    }
+};
 
 export const applyMidtransNotificationOverride = (client: any, customOverrideUrl?: string) => {
     let overrideUrl = (customOverrideUrl || process.env.MIDTRANS_OVERRIDE_NOTIFICATION_URL || process.env.MIDTRANS_NOTIFICATION_URL || '').trim();
@@ -195,17 +225,26 @@ export const getOrders = ErrorHandler.catchAsync(async (req: Request, res: Respo
 
 export const updateOrder = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
     const status_delivery = req.body.status_delivery;
-    const order = await Orders.findByIdAndUpdate(
-        req.params.id,
-        { status_delivery },
-        { new: true, runValidators: true }
-    );
+    const existingOrder = await Orders.findById(req.params.id);
 
-    if (!order) {
+    if (!existingOrder) {
         throw new NotFoundError('Order not found');
     }
 
-    const response = ApiResponse.success({ order, message: 'Order updated' }, 'Order updated successfully');
+    const previousStatus = existingOrder.status_delivery;
+    existingOrder.status_delivery = status_delivery;
+    await existingOrder.save();
+
+    // Trigger push notification if status has changed and order has a customer user
+    if (status_delivery && status_delivery !== previousStatus && existingOrder.user) {
+        NotificationService.sendOrderDeliveryNotification({
+            orderId: String(existingOrder._id),
+            userId: existingOrder.user as any,
+            deliveryStatus: status_delivery,
+        }).catch((err) => console.error('Failed to dispatch delivery push notification:', err));
+    }
+
+    const response = ApiResponse.success({ order: existingOrder, message: 'Order updated' }, 'Order updated successfully');
     res.status(200).json(response);
 });
 
@@ -215,6 +254,8 @@ export const getAllOrders = ErrorHandler.catchAsync(async (req: Request, res: Re
     const parsedLimit = parseInt(limit as string) || 12;
 
     const orders: Order[] = await Orders.find({ payment_method: { $ne: '', $exists: true } })
+        .populate('user', 'name email avatar')
+        .populate('order_items._id')
         .sort({ createdAt: -1 })
         .skip(parsedSkip)
         .limit(parsedLimit);
@@ -227,7 +268,9 @@ export const getAllOrders = ErrorHandler.catchAsync(async (req: Request, res: Re
 });
 
 export const getOrder = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
-    const order: Order | null = await Orders.findById(req.params.id).populate('order_items._id');
+    const order: Order | null = await Orders.findById(req.params.id)
+        .populate('user', 'name email avatar')
+        .populate('order_items._id');
     if (!order) {
         throw new NotFoundError('Order not found');
     }
@@ -292,6 +335,7 @@ export const handleMidtransNotification = async (req: Request, res: Response) =>
                     (invoice as any).payment_details = mergedDetails;
                     await invoice.save();
                 }
+                await triggerPaymentSuccessReceipt(order, invoice);
             }
         } else if (transactionStatus === 'settlement') {
             order.status_payment = 'completed';
@@ -301,6 +345,7 @@ export const handleMidtransNotification = async (req: Request, res: Response) =>
                 (invoice as any).payment_details = mergedDetails;
                 await invoice.save();
             }
+            await triggerPaymentSuccessReceipt(order, invoice);
         } else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
             order.status_payment = 'cancelled';
             order.status_delivery = 'cancelled';
@@ -584,6 +629,7 @@ export const getPaymentStatus = ErrorHandler.catchAsync(async (req: Request, res
                 (invoice as any).payment_details = mergedDetails;
                 await invoice.save();
             }
+            await triggerPaymentSuccessReceipt(order, invoice);
         } else if (['cancel', 'expire', 'deny'].includes(transactionStatus)) {
             order.status_payment = 'cancelled';
             if (invoice) {

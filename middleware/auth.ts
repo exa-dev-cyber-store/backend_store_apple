@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import Users, { User } from '../app/users/model';
-import { ForbiddenError, UnauthorizedError } from '../types/errors';
+import { ForbiddenError, UnauthorizedError, TokenExpiredError } from '../types/errors';
 
 /**
  * Authenticate middleware - verifies access token and checks session
@@ -21,9 +21,13 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       }
     }
 
-    // Fallback to cookie if header did not supply a valid token
+    // Fallback to cookie or query parameter (for SSE / WebSocket) if header did not supply a valid token
     if (!token && req.cookies?.token) {
       token = req.cookies.token;
+    } else if (!token && req.cookies?.jwt) {
+      token = req.cookies.jwt;
+    } else if (!token && req.query?.token) {
+      token = String(req.query.token);
     }
 
     if (!token) {
@@ -34,6 +38,9 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     try {
       decoded = jwt.verify(token, process.env.SECRET_JWT_KEY as string, { algorithms: ['HS384', 'HS256'] });
     } catch (err: any) {
+      if (err?.name === 'TokenExpiredError') {
+        throw new TokenExpiredError('Token expired');
+      }
       throw new UnauthorizedError(err?.message || 'Invalid or expired token');
     }
 

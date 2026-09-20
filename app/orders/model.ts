@@ -23,6 +23,7 @@ export interface Order extends Document {
     discount: number;
     status_delivery: string;
     payment_details?: any;
+    receipt_sent?: boolean;
 };
 
 const orderSchema = new Schema<Order>({
@@ -33,6 +34,7 @@ const orderSchema = new Schema<Order>({
     payment_details: { type: Schema.Types.Mixed },
     shipping: { type: Number },
     token: { type: String },
+    receipt_sent: { type: Boolean, default: false },
     order_items: [
         {
             _id: { type: Schema.Types.ObjectId, ref: 'Product' },
@@ -57,20 +59,35 @@ const orderSchema = new Schema<Order>({
 
 orderSchema.pre('save', async function (next) {
     try {
-        const invoice: Invoice = new Invoices({
-            user: this.user,
-            delivery_address: this.delivery_address,
-            total: this.total,
-            tax: this.tax,
-            payment_method: this.payment_method,
-            payment_details: (this as any).payment_details,
-            shipping: this.shipping,
-            discount: this.discount,
-            order: this._id,
-            status_payment: this.status_payment,
-            status_delivery: this.status_delivery
-        });
-        await invoice.save();
+        if (this.isNew) {
+            const invoice: Invoice = new Invoices({
+                user: this.user,
+                delivery_address: this.delivery_address,
+                total: this.total,
+                tax: this.tax,
+                payment_method: this.payment_method,
+                payment_details: (this as any).payment_details,
+                shipping: this.shipping,
+                discount: this.discount,
+                order: this._id,
+                status_payment: this.status_payment,
+                status_delivery: this.status_delivery
+            });
+            await invoice.save();
+        } else {
+            // Keep existing invoice status in sync
+            await Invoices.findOneAndUpdate(
+                { order: this._id },
+                {
+                    $set: {
+                        status_payment: this.status_payment,
+                        status_delivery: this.status_delivery,
+                        payment_method: this.payment_method,
+                        payment_details: (this as any).payment_details,
+                    }
+                }
+            );
+        }
         next();
     } catch (error) {
         next((error as Error));

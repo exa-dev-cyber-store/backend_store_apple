@@ -43,6 +43,12 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+export class TokenExpiredError extends AppError {
+  constructor(message = 'Token expired') {
+    super(message, HTTP_STATUS.UNAUTHORIZED, RESPONSE_CODES.TOKEN_EXPIRED, true);
+  }
+}
+
 export class ForbiddenError extends AppError {
   constructor(message = 'Forbidden') {
     super(message, HTTP_STATUS.FORBIDDEN, RESPONSE_CODES.FORBIDDEN, true);
