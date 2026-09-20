@@ -79,5 +79,11 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+export class TooManyRequestsError extends AppError {
+  constructor(message = 'Too many requests. Please try again later.', details?: unknown) {
+    super(message, HTTP_STATUS.TOO_MANY_REQUESTS, RESPONSE_CODES.TOO_MANY_REQUESTS, true, details);
+  }
+}
+
 export { HTTP_STATUS, RESPONSE_CODES };
 export type { ResponseCode, HttpStatus };

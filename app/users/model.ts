@@ -24,6 +24,8 @@ export interface User extends Document {
     // Password reset fields
     resetPasswordToken?: string;
     resetPasswordExpires?: Date;
+    resetPasswordAttempts?: number;
+    resetPasswordWindowStart?: Date;
     // Profile picture avatar
     avatar?: string;
     // Apple Server-to-Server notification status
@@ -52,6 +54,8 @@ const userSchema = new Schema<User>({
     authProviders: [{ type: String }],
     resetPasswordToken: { type: String },
     resetPasswordExpires: { type: Date },
+    resetPasswordAttempts: { type: Number, default: 0 },
+    resetPasswordWindowStart: { type: Date },
     appleConsentRevoked: { type: Boolean, default: false },
     appleConsentRevokedAt: { type: Date },
     emailRelayDisabled: { type: Boolean, default: false },

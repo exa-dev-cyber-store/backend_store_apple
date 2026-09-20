@@ -7,7 +7,7 @@ import passport from 'passport';
 import jwt from 'jsonwebtoken';
 import Carts, { Cart } from "../cart/model";
 import { ApiResponse } from "../../types/response";
-import { UnauthorizedError, BadRequestError, ConflictError, NotFoundError } from "../../types/errors";
+import { UnauthorizedError, BadRequestError, ConflictError, NotFoundError, TooManyRequestsError } from "../../types/errors";
 import ErrorHandler from "../../middleware/errorHandler";
 import crypto from 'crypto';
 import { EmailService } from "../services/emailService";
@@ -928,11 +928,27 @@ export const forgotPassword = ErrorHandler.catchAsync(async (req: Request, res: 
         return res.status(200).json(response);
     }
 
+    // Daily rate limit: Maximum 3 password reset emails per 24 hours
+    const DAILY_LIMIT = 3;
+    const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const now = new Date();
+
+    const windowStart = user.resetPasswordWindowStart ? new Date(user.resetPasswordWindowStart) : null;
+    const isWindowExpired = !windowStart || (now.getTime() - windowStart.getTime() > WINDOW_MS);
+    const currentAttempts = isWindowExpired ? 0 : (user.resetPasswordAttempts || 0);
+
+    if (currentAttempts >= DAILY_LIMIT) {
+        const msLeft = (windowStart!.getTime() + WINDOW_MS) - now.getTime();
+        const hoursLeft = Math.max(1, Math.ceil(msLeft / (1000 * 60 * 60)));
+        throw new TooManyRequestsError(
+            `You have reached the maximum limit of ${DAILY_LIMIT} password reset requests per day. Please try again in ${hoursLeft} hour${hoursLeft > 1 ? 's' : ''}.`
+        );
+    }
+
     // Generate secure crypto reset token (expires in 1 hour)
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = resetToken;
     user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
-    await user.save();
 
     const clientUrl = process.env.CLIENT_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000';
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
@@ -945,10 +961,20 @@ export const forgotPassword = ErrorHandler.catchAsync(async (req: Request, res: 
         token: resetToken,
     });
 
+    // Record the successful email send in the rate limit window
+    if (isWindowExpired) {
+        user.resetPasswordWindowStart = now;
+        user.resetPasswordAttempts = 1;
+    } else {
+        user.resetPasswordAttempts = currentAttempts + 1;
+    }
+    await user.save();
+
     const response = ApiResponse.success(
         {
             email: user.email,
             isAppleRelay: user.email.endsWith('@privaterelay.appleid.com'),
+            attemptsRemaining: Math.max(0, DAILY_LIMIT - user.resetPasswordAttempts),
         },
         'A password reset link has been successfully sent to your email.'
     );
@@ -982,6 +1008,8 @@ export const resetPassword = ErrorHandler.catchAsync(async (req: Request, res: R
     user.resetPasswordExpires = undefined;
     // Clear active session tokens so existing sessions must re-login
     user.token = [];
+    user.resetPasswordAttempts = 0;
+    user.resetPasswordWindowStart = undefined;
     await user.save();
 
     const response = ApiResponse.success(
