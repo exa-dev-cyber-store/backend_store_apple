@@ -20,7 +20,7 @@ const errors_1 = require("../types/errors");
  * Authenticate middleware - verifies access token and checks session
  */
 const authenticate = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     try {
         let token;
         const authHeader = req.headers.authorization;
@@ -34,13 +34,16 @@ const authenticate = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
             }
         }
         // Fallback to cookie or query parameter (for SSE / WebSocket) if header did not supply a valid token
-        if (!token && ((_a = req.cookies) === null || _a === void 0 ? void 0 : _a.token)) {
+        if (!token && ((_a = req.cookies) === null || _a === void 0 ? void 0 : _a.accessToken)) {
+            token = req.cookies.accessToken;
+        }
+        else if (!token && ((_b = req.cookies) === null || _b === void 0 ? void 0 : _b.token)) {
             token = req.cookies.token;
         }
-        else if (!token && ((_b = req.cookies) === null || _b === void 0 ? void 0 : _b.jwt)) {
+        else if (!token && ((_c = req.cookies) === null || _c === void 0 ? void 0 : _c.jwt)) {
             token = req.cookies.jwt;
         }
-        else if (!token && ((_c = req.query) === null || _c === void 0 ? void 0 : _c.token)) {
+        else if (!token && ((_d = req.query) === null || _d === void 0 ? void 0 : _d.token)) {
             token = String(req.query.token);
         }
         if (!token) {
@@ -81,37 +84,51 @@ exports.authenticate = authenticate;
  * Optional authentication - attaches user if token is valid without throwing
  */
 const optionalAuth = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
     try {
+        let token;
         const authHeader = req.headers.authorization;
         if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.substring(7);
-            if (token) {
-                try {
-                    const decoded = jsonwebtoken_1.default.verify(token, process.env.SECRET_JWT_KEY, {
-                        algorithms: ['HS384', 'HS256'],
-                    });
-                    const user = yield model_1.default.findOne({
-                        _id: decoded._id || decoded.userId,
-                        token: { $in: [token] },
-                    });
-                    if (user) {
-                        req.user = {
-                            _id: user._id.toString(),
-                            userId: user._id.toString(),
-                            email: user.email,
-                            name: user.name,
-                            role: user.role,
-                        };
-                    }
+            const extracted = authHeader.substring(7).trim();
+            if (extracted && extracted !== 'undefined' && extracted !== 'null') {
+                token = extracted;
+            }
+        }
+        if (!token && ((_a = req.cookies) === null || _a === void 0 ? void 0 : _a.accessToken)) {
+            token = req.cookies.accessToken;
+        }
+        else if (!token && ((_b = req.cookies) === null || _b === void 0 ? void 0 : _b.token)) {
+            token = req.cookies.token;
+        }
+        else if (!token && ((_c = req.cookies) === null || _c === void 0 ? void 0 : _c.jwt)) {
+            token = req.cookies.jwt;
+        }
+        if (token) {
+            try {
+                const decoded = jsonwebtoken_1.default.verify(token, process.env.SECRET_JWT_KEY, {
+                    algorithms: ['HS384', 'HS256'],
+                });
+                const user = yield model_1.default.findOne({
+                    _id: decoded._id || decoded.userId,
+                    token: { $in: [token] },
+                });
+                if (user) {
+                    req.user = {
+                        _id: user._id.toString(),
+                        userId: user._id.toString(),
+                        email: user.email,
+                        name: user.name,
+                        role: user.role,
+                    };
                 }
-                catch (_a) {
-                    // Ignore token failure in optionalAuth
-                }
+            }
+            catch (_d) {
+                // Ignore token failure in optionalAuth
             }
         }
         next();
     }
-    catch (_b) {
+    catch (_e) {
         next();
     }
 });

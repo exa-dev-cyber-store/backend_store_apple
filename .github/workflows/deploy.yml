@@ -1,75 +1,31 @@
-name: Build & Deploy Apple Store Backend to VPS via GHCR
+name: Deploy Backend
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-
-    steps:
-      # 1️⃣ Checkout code
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # 2️⃣ Get short SHA
-      - name: Get Commit SHA (short)
-        id: vars
-        run: echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-
-      # 3️⃣ Login to GHCR
-      - name: Log in to GHCR
-        run: |
-          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io \
-            -u ${{ github.actor }} \
-            --password-stdin
-
-      # 4️⃣ Build Docker Image
-      - name: Build Docker image
-        run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/be-apple-store:${{ steps.vars.outputs.sha }}
-          docker build -t $IMAGE \
-            -t ghcr.io/${{ github.repository_owner }}/be-apple-store:latest \
-            -t ghcr.io/${{ github.repository_owner }}/node-app:latest \
-            -t ghcr.io/${{ github.repository_owner }}/node-app:${{ steps.vars.outputs.sha }} .
-
-      # 5️⃣ Push Docker Image
-      - name: Push Docker image
-        run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/be-apple-store:${{ steps.vars.outputs.sha }}
-          docker push $IMAGE
-          docker push ghcr.io/${{ github.repository_owner }}/be-apple-store:latest
-          docker push ghcr.io/${{ github.repository_owner }}/node-app:latest
-          docker push ghcr.io/${{ github.repository_owner }}/node-app:${{ steps.vars.outputs.sha }}
-
-      # 6️⃣ Setup SSH known_hosts
-      - name: Setup SSH known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          ssh-keyscan -p 31080 -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-
-      # 7️⃣ Start SSH Agent (SECURE)
-      - name: Start SSH Agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_KEY }}
-
-      # 8️⃣ Deploy to VPS
-      - name: Deploy to VPS
-        run: |
-          ssh -p 31080 deploy@${{ secrets.VPS_HOST }} << 'EOF'
-            set -e
-          
-            export KUBECONFIG=/home/deploy/.kube/config         
-          
-            NEW_IMAGE="ghcr.io/${{ github.repository_owner }}/be-apple-store:${{ steps.vars.outputs.sha }}"
-
-            kubectl set image deployment/be-apple-store \
-              -n appel-store \
-              be-apple-store=$NEW_IMAGE
-
-            # kubectl rollout status deployment/be-apple-store \
-            #   -n appel-store
-          EOF
+  deploy:
+    uses: exa31/github-workflows/.github/workflows/backend.yml@main
+    with:
+      app_name: be-apple-store
+      namespace: appel-store
+      image_name: ghcr.io/exa31/be-apple-store
+      docker_context: .
+      dockerfile: Dockerfile
+      ssh_port: 31080
+      kubeconfig: /home/deploy/.kube/config
+      rollout_timeout: 300s
+      push_latest: true
+    secrets:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}

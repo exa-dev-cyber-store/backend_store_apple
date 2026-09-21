@@ -2,8 +2,8 @@ import { Response, Request, NextFunction } from "express";
 import Users, { User } from "./model";
 import RefreshToken from "./refreshTokenModel";
 import bcrypt from 'bcrypt';
-import { getToken } from "../../utils";
 import passport from 'passport';
+import { getToken, setAuthCookies, clearAuthCookies } from "../../utils";
 import jwt from 'jsonwebtoken';
 import Carts, { Cart } from "../cart/model";
 import { ApiResponse } from "../../types/response";
@@ -92,6 +92,7 @@ export const login = (req: Request, res: Response, next: NextFunction) => {
         }
         try {
             const tokens = await issueUserTokens(user, req);
+            setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
             const response = ApiResponse.success(
                 {
                     ...tokens,
@@ -133,6 +134,7 @@ export const loginGoogle = ErrorHandler.catchAsync(async (req: Request, res: Res
     }
 
     const tokens = await issueUserTokens(user, req);
+    setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
     const response = ApiResponse.success({
         ...tokens,
@@ -203,6 +205,8 @@ export const refreshAccessToken = ErrorHandler.catchAsync(async (req: Request, r
 
     await Users.findByIdAndUpdate(user._id, { $push: { token: newAccessToken } });
 
+    setAuthCookies(res, newAccessToken, newRefreshTokenString);
+
     const response = ApiResponse.success(
         {
             accessToken: newAccessToken,
@@ -235,6 +239,8 @@ export const logout = ErrorHandler.catchAsync(async (req: Request, res: Response
     if (token) {
         await Users.findOneAndUpdate({ token }, { $pull: { token } });
     }
+
+    clearAuthCookies(res);
 
     const response = ApiResponse.success(null, 'Logout success');
     res.status(200).json(response);
@@ -500,6 +506,7 @@ export const verifyGoogleAuth = ErrorHandler.catchAsync(async (req: Request, res
     }
 
     const tokens = await issueUserTokens(user, req);
+    setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
     const response = ApiResponse.success({
         ...tokens,
@@ -670,6 +677,8 @@ export const verifyAppleAuth = ErrorHandler.catchAsync(async (req: Request, res:
         email: clientEmail,
         name: clientName,
     });
+
+    setAuthCookies(res, accessToken, refreshToken);
 
     const response = ApiResponse.success(
         {

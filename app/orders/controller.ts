@@ -237,9 +237,13 @@ export const updateOrder = ErrorHandler.catchAsync(async (req: Request, res: Res
 
     // Trigger push notification if status has changed and order has a customer user
     if (status_delivery && status_delivery !== previousStatus && existingOrder.user) {
+        const userId = (existingOrder.user as any)?._id
+            ? String((existingOrder.user as any)._id)
+            : String(existingOrder.user);
+
         NotificationService.sendOrderDeliveryNotification({
             orderId: String(existingOrder._id),
-            userId: existingOrder.user as any,
+            userId,
             deliveryStatus: status_delivery,
         }).catch((err) => console.error('Failed to dispatch delivery push notification:', err));
     }
@@ -336,6 +340,16 @@ export const handleMidtransNotification = async (req: Request, res: Response) =>
                     await invoice.save();
                 }
                 await triggerPaymentSuccessReceipt(order, invoice);
+                if (order.user) {
+                    const userId = (order.user as any)?._id ? String((order.user as any)._id) : String(order.user);
+                    NotificationService.createAndDispatch({
+                        userId,
+                        title: 'Pembayaran Diterima! 💳',
+                        body: `Pembayaran untuk pesanan #${String(order._id).slice(-6).toUpperCase()} berhasil dikonfirmasi. Tim kami sedang menyiapkan pesanan Anda.`,
+                        type: 'delivery',
+                        data: { orderId: String(order._id), link: '/account/order' },
+                    }).catch((err) => console.error('[Webhook Notification Error]:', err));
+                }
             }
         } else if (transactionStatus === 'settlement') {
             order.status_payment = 'completed';
@@ -346,6 +360,16 @@ export const handleMidtransNotification = async (req: Request, res: Response) =>
                 await invoice.save();
             }
             await triggerPaymentSuccessReceipt(order, invoice);
+            if (order.user) {
+                const userId = (order.user as any)?._id ? String((order.user as any)._id) : String(order.user);
+                NotificationService.createAndDispatch({
+                    userId,
+                    title: 'Pembayaran Berhasil! 💳',
+                    body: `Pembayaran untuk pesanan #${String(order._id).slice(-6).toUpperCase()} berhasil dikonfirmasi. Tim kami sedang menyiapkan pesanan Anda.`,
+                    type: 'delivery',
+                    data: { orderId: String(order._id), link: '/account/order' },
+                }).catch((err) => console.error('[Webhook Notification Error]:', err));
+            }
         } else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
             order.status_payment = 'cancelled';
             order.status_delivery = 'cancelled';
@@ -354,6 +378,14 @@ export const handleMidtransNotification = async (req: Request, res: Response) =>
                 invoice.status_payment = 'cancelled';
                 (invoice as any).payment_details = mergedDetails;
                 await invoice.save();
+            }
+            if (order.user) {
+                const userId = (order.user as any)?._id ? String((order.user as any)._id) : String(order.user);
+                NotificationService.sendOrderDeliveryNotification({
+                    orderId: String(order._id),
+                    userId,
+                    deliveryStatus: 'cancelled',
+                }).catch((err) => console.error('[Webhook Cancel Notification Error]:', err));
             }
         } else if (transactionStatus === 'pending') {
             order.status_payment = 'pending';

@@ -22,7 +22,9 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     }
 
     // Fallback to cookie or query parameter (for SSE / WebSocket) if header did not supply a valid token
-    if (!token && req.cookies?.token) {
+    if (!token && req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
+    } else if (!token && req.cookies?.token) {
       token = req.cookies.token;
     } else if (!token && req.cookies?.jwt) {
       token = req.cookies.jwt;
@@ -72,11 +74,25 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
  */
 export const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    let token: string | undefined;
     const authHeader = req.headers.authorization;
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      if (token) {
+      const extracted = authHeader.substring(7).trim();
+      if (extracted && extracted !== 'undefined' && extracted !== 'null') {
+        token = extracted;
+      }
+    }
+
+    if (!token && req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
+    } else if (!token && req.cookies?.token) {
+      token = req.cookies.token;
+    } else if (!token && req.cookies?.jwt) {
+      token = req.cookies.jwt;
+    }
+
+    if (token) {
         try {
           const decoded = jwt.verify(token, process.env.SECRET_JWT_KEY as string, {
             algorithms: ['HS384', 'HS256'],
@@ -99,7 +115,6 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
           // Ignore token failure in optionalAuth
         }
       }
-    }
 
     next();
   } catch {

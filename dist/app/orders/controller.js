@@ -253,6 +253,7 @@ exports.getOrders = errorHandler_1.default.catchAsync((req, res) => __awaiter(vo
     res.status(200).json(response);
 }));
 exports.updateOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const status_delivery = req.body.status_delivery;
     const existingOrder = yield model_1.default.findById(req.params.id);
     if (!existingOrder) {
@@ -263,9 +264,12 @@ exports.updateOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(
     yield existingOrder.save();
     // Trigger push notification if status has changed and order has a customer user
     if (status_delivery && status_delivery !== previousStatus && existingOrder.user) {
+        const userId = ((_a = existingOrder.user) === null || _a === void 0 ? void 0 : _a._id)
+            ? String(existingOrder.user._id)
+            : String(existingOrder.user);
         service_1.NotificationService.sendOrderDeliveryNotification({
             orderId: String(existingOrder._id),
-            userId: existingOrder.user,
+            userId,
             deliveryStatus: status_delivery,
         }).catch((err) => console.error('Failed to dispatch delivery push notification:', err));
     }
@@ -298,6 +302,7 @@ exports.getOrder = errorHandler_1.default.catchAsync((req, res) => __awaiter(voi
     res.status(200).json(response);
 }));
 const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
     try {
         const snap = new midtrans_client_1.default.Snap({
             isProduction: false,
@@ -308,7 +313,7 @@ const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 
         try {
             statusResponse = yield snap.transaction.notification(notification);
         }
-        catch (_a) {
+        catch (_d) {
             statusResponse = notification;
         }
         const rawOrderId = String(statusResponse.order_id || '');
@@ -338,6 +343,16 @@ const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 
                     yield invoice.save();
                 }
                 yield (0, exports.triggerPaymentSuccessReceipt)(order, invoice);
+                if (order.user) {
+                    const userId = ((_a = order.user) === null || _a === void 0 ? void 0 : _a._id) ? String(order.user._id) : String(order.user);
+                    service_1.NotificationService.createAndDispatch({
+                        userId,
+                        title: 'Pembayaran Diterima! 💳',
+                        body: `Pembayaran untuk pesanan #${String(order._id).slice(-6).toUpperCase()} berhasil dikonfirmasi. Tim kami sedang menyiapkan pesanan Anda.`,
+                        type: 'delivery',
+                        data: { orderId: String(order._id), link: '/account/order' },
+                    }).catch((err) => console.error('[Webhook Notification Error]:', err));
+                }
             }
         }
         else if (transactionStatus === 'settlement') {
@@ -349,6 +364,16 @@ const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 
                 yield invoice.save();
             }
             yield (0, exports.triggerPaymentSuccessReceipt)(order, invoice);
+            if (order.user) {
+                const userId = ((_b = order.user) === null || _b === void 0 ? void 0 : _b._id) ? String(order.user._id) : String(order.user);
+                service_1.NotificationService.createAndDispatch({
+                    userId,
+                    title: 'Pembayaran Berhasil! 💳',
+                    body: `Pembayaran untuk pesanan #${String(order._id).slice(-6).toUpperCase()} berhasil dikonfirmasi. Tim kami sedang menyiapkan pesanan Anda.`,
+                    type: 'delivery',
+                    data: { orderId: String(order._id), link: '/account/order' },
+                }).catch((err) => console.error('[Webhook Notification Error]:', err));
+            }
         }
         else if (transactionStatus === 'deny' || transactionStatus === 'cancel' || transactionStatus === 'expire') {
             order.status_payment = 'cancelled';
@@ -358,6 +383,14 @@ const handleMidtransNotification = (req, res) => __awaiter(void 0, void 0, void 
                 invoice.status_payment = 'cancelled';
                 invoice.payment_details = mergedDetails;
                 yield invoice.save();
+            }
+            if (order.user) {
+                const userId = ((_c = order.user) === null || _c === void 0 ? void 0 : _c._id) ? String(order.user._id) : String(order.user);
+                service_1.NotificationService.sendOrderDeliveryNotification({
+                    orderId: String(order._id),
+                    userId,
+                    deliveryStatus: 'cancelled',
+                }).catch((err) => console.error('[Webhook Cancel Notification Error]:', err));
             }
         }
         else if (transactionStatus === 'pending') {

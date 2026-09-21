@@ -6,9 +6,17 @@ export function isValidEmail(email: string): boolean {
     return emailRegex.test(email);
 }
 
-export const getToken = (req: Request) => {
-    return req.headers.authorization ? req.headers.authorization.split(' ')[1] : null;
-}
+export * from './cookies';
+
+export const getToken = (req: Request): string | null => {
+    if (req.headers.authorization) {
+        const parts = req.headers.authorization.split(' ');
+        if (parts.length === 2 && parts[0] === 'Bearer') {
+            return parts[1];
+        }
+    }
+    return req.cookies?.accessToken || req.cookies?.token || req.cookies?.jwt || null;
+};
 
 
 export const getSelectedView = (periode: string) => {

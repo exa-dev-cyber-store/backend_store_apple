@@ -28,8 +28,8 @@ exports.authenticateWithAppleCore = authenticateWithAppleCore;
 const model_1 = __importDefault(require("./model"));
 const refreshTokenModel_1 = __importDefault(require("./refreshTokenModel"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
-const utils_1 = require("../../utils");
 const passport_1 = __importDefault(require("passport"));
+const utils_1 = require("../../utils");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const model_2 = __importDefault(require("../cart/model"));
 const response_1 = require("../../types/response");
@@ -104,6 +104,7 @@ const login = (req, res, next) => {
         }
         try {
             const tokens = yield (0, exports.issueUserTokens)(user, req);
+            (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
             const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, role: user.role, email: user.email, avatar: user.avatar || null, user: {
                     _id: user._id,
                     name: user.name,
@@ -134,6 +135,7 @@ exports.loginGoogle = errorHandler_1.default.catchAsync((req, res) => __awaiter(
         yield user.save();
     }
     const tokens = yield (0, exports.issueUserTokens)(user, req);
+    (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
     const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, role: user.role, email: user.email, avatar: user.avatar || null, user: {
             _id: user._id,
             name: user.name,
@@ -182,6 +184,7 @@ exports.refreshAccessToken = errorHandler_1.default.catchAsync((req, res) => __a
     const payload = { _id: user._id, email: user.email, name: user.name, role: user.role };
     const newAccessToken = jsonwebtoken_1.default.sign(payload, process.env.SECRET_JWT_KEY, { expiresIn: '15m', algorithm: 'HS384' });
     yield model_1.default.findByIdAndUpdate(user._id, { $push: { token: newAccessToken } });
+    (0, utils_1.setAuthCookies)(res, newAccessToken, newRefreshTokenString);
     const response = response_1.ApiResponse.success({
         accessToken: newAccessToken,
         refreshToken: newRefreshTokenString,
@@ -206,6 +209,7 @@ exports.logout = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 
     if (token) {
         yield model_1.default.findOneAndUpdate({ token }, { $pull: { token } });
     }
+    (0, utils_1.clearAuthCookies)(res);
     const response = response_1.ApiResponse.success(null, 'Logout success');
     res.status(200).json(response);
 }));
@@ -405,6 +409,7 @@ exports.verifyGoogleAuth = errorHandler_1.default.catchAsync((req, res) => __awa
         }
     }
     const tokens = yield (0, exports.issueUserTokens)(user, req);
+    (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
     const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, email: user.email, role: user.role, avatar: user.avatar || googlePayload.picture || null, picture: user.avatar || googlePayload.picture || null, user: {
             _id: user._id,
             name: user.name,
@@ -541,6 +546,7 @@ exports.verifyAppleAuth = errorHandler_1.default.catchAsync((req, res) => __awai
         email: clientEmail,
         name: clientName,
     });
+    (0, utils_1.setAuthCookies)(res, accessToken, refreshToken);
     const response = response_1.ApiResponse.success({
         accessToken,
         refreshToken,

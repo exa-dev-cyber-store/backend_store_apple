@@ -170,6 +170,18 @@ class NotificationService {
                     }
                 }
                 const link = ((_a = payload.data) === null || _a === void 0 ? void 0 : _a.link) || '/';
+                let userBadgeCount;
+                if (targetUserId) {
+                    try {
+                        userBadgeCount = yield model_1.Notifications.countDocuments({
+                            $or: [{ user: new mongoose_1.Types.ObjectId(targetUserId) }, { user: null }],
+                            isRead: false,
+                        });
+                    }
+                    catch (_b) {
+                        userBadgeCount = 1;
+                    }
+                }
                 // FCM Multicast batch limit is 500
                 const batchSize = 500;
                 for (let i = 0; i < uniqueTokens.length; i += batchSize) {
@@ -182,6 +194,34 @@ class NotificationService {
                                 body: payload.body,
                             },
                             data: stringData,
+                            android: {
+                                priority: 'high',
+                                notification: {
+                                    title: payload.title,
+                                    body: payload.body,
+                                    sound: 'default',
+                                    defaultSound: true,
+                                    channelId: 'cyber_apple_notifications',
+                                    clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+                                },
+                            },
+                            apns: {
+                                headers: {
+                                    'apns-priority': '10',
+                                    'apns-push-type': 'alert',
+                                },
+                                payload: {
+                                    aps: {
+                                        alert: {
+                                            title: payload.title,
+                                            body: payload.body,
+                                        },
+                                        sound: 'default',
+                                        badge: typeof userBadgeCount === 'number' ? userBadgeCount : 1,
+                                        contentAvailable: true,
+                                    },
+                                },
+                            },
                             webpush: {
                                 notification: {
                                     title: payload.title,
@@ -249,10 +289,11 @@ class NotificationService {
             };
             // 1. Deliver real-time SSE event to web & mobile (via Redis pub/sub across all instances)
             yield this.broadcastSse(userObjectId ? userObjectId.toString() : null, payload);
-            // 2. Deliver native Web Push notification (VAPID)
-            this.sendWebPush(userObjectId ? userObjectId.toString() : null, payload);
-            // 3. Deliver FCM Push notification to all registered tokens (Web & Mobile)
-            this.sendFcmPush(userObjectId ? userObjectId.toString() : null, payload);
+            // 2. Deliver native Web Push notification (VAPID) and FCM push notification concurrently
+            yield Promise.allSettled([
+                this.sendWebPush(userObjectId ? userObjectId.toString() : null, payload),
+                this.sendFcmPush(userObjectId ? userObjectId.toString() : null, payload),
+            ]);
             return notification;
         });
     }
