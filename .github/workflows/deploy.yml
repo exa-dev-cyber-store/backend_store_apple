@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: exa31/github-workflows/.github/workflows/backend.yml@main
+    uses: exa31/github-workflows/.github/workflows/backend.yml@v1.0.0
     with:
       app_name: be-apple-store
       namespace: appel-store
