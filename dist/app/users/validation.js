@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.setPasswordSchema = exports.updateProfileSchema = exports.linkGoogleSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.createUserByAdminSchema = exports.userIdParamSchema = exports.updateUserRoleSchema = exports.listUsersSchema = exports.verifyGoogleAuthSchema = exports.loginGoogleSchema = exports.loginSchema = exports.registerSchema = void 0;
+exports.resendVerificationSchema = exports.verifyEmailSchema = exports.setPasswordSchema = exports.updateProfileSchema = exports.linkGoogleSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.createUserByAdminSchema = exports.userIdParamSchema = exports.updateUserRoleSchema = exports.listUsersSchema = exports.verifyGoogleAuthSchema = exports.loginGoogleSchema = exports.loginSchema = exports.registerSchema = void 0;
 const zod_1 = require("zod");
 exports.registerSchema = {
     body: zod_1.z.object({
@@ -97,5 +97,16 @@ exports.setPasswordSchema = {
     }).refine((data) => !data.confirmPassword || data.password === data.confirmPassword, {
         message: "Passwords do not match",
         path: ["confirmPassword"],
+    }),
+};
+exports.verifyEmailSchema = {
+    body: zod_1.z.object({
+        code: zod_1.z.string().min(6, "Verification code must be 6 digits").max(6, "Verification code must be 6 digits"),
+        email: zod_1.z.string().email("Invalid email address").optional(),
+    }),
+};
+exports.resendVerificationSchema = {
+    body: zod_1.z.object({
+        email: zod_1.z.string().email("Invalid email address").optional(),
     }),
 };

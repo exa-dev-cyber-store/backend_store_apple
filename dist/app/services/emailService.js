@@ -212,6 +212,160 @@ class EmailService {
         });
     }
     /**
+     * Send 6-digit Email Verification Code for User Onboarding
+     */
+    static sendVerificationCodeEmail(_a) {
+        return __awaiter(this, arguments, void 0, function* ({ to, name, code }) {
+            const recipientDisplayName = name || 'Customer';
+            console.log('================================================================');
+            console.log(`✉️ [EMAIL VERIFICATION CODE] User: ${to}`);
+            console.log(`🔑 6-DIGIT CODE: ${code}`);
+            console.log('================================================================');
+            const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Verify Your Cyber Store Email</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #080b11;
+            margin: 0;
+            padding: 32px 16px;
+            color: #f5f5f7;
+          }
+          .container {
+            max-width: 520px;
+            margin: 0 auto;
+            background: #0f141f;
+            border: 1px solid #1e2638;
+            border-radius: 24px;
+            padding: 40px 32px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+          }
+          .logo-area {
+            text-align: center;
+            margin-bottom: 24px;
+          }
+          .logo {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: #ffffff;
+            display: inline-block;
+          }
+          .logo span {
+            color: #06b6d4;
+          }
+          .badge {
+            display: inline-block;
+            background: rgba(6, 182, 212, 0.12);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            color: #06b6d4;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 4px 12px;
+            border-radius: 100px;
+            margin-bottom: 12px;
+          }
+          .title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 0 0 12px;
+            text-align: center;
+          }
+          .subtitle {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #94a3b8;
+            margin: 0 0 28px;
+            text-align: center;
+          }
+          .code-box {
+            background: #050811;
+            border: 1.5px dashed #06b6d4;
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin: 0 0 28px;
+          }
+          .code-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+            margin-bottom: 8px;
+          }
+          .code-value {
+            font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace;
+            font-size: 36px;
+            font-weight: 800;
+            letter-spacing: 8px;
+            color: #06b6d4;
+            text-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+          }
+          .expiry-notice {
+            font-size: 12px;
+            color: #cbd5e1;
+            text-align: center;
+            margin-bottom: 24px;
+          }
+          .expiry-notice strong {
+            color: #38bdf8;
+          }
+          .footer {
+            border-top: 1px solid #1e2638;
+            padding-top: 24px;
+            font-size: 11px;
+            color: #64748b;
+            text-align: center;
+            line-height: 1.5;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="logo-area">
+            <div class="badge">Email Verification</div>
+            <div class="logo">Cyber<span>.</span> Apple Store</div>
+          </div>
+          <h1 class="title">Verify Your Email Address</h1>
+          <p class="subtitle">
+            Hello <strong>${recipientDisplayName}</strong>, welcome to Cyber! Please enter the following 6-digit verification code to complete your registration.
+          </p>
+
+          <div class="code-box">
+            <div class="code-label">Verification Code</div>
+            <div class="code-value">${code}</div>
+          </div>
+
+          <p class="expiry-notice">
+            ⏱️ This code is valid for <strong>15 minutes</strong>. Never share this code with anyone.
+          </p>
+
+          <div class="footer">
+            <p>If you did not sign up for a Cyber Store account, please ignore this email.</p>
+            <p>© ${new Date().getFullYear()} Cyber Apple Store. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+            const result = yield this.sendEmail({
+                to,
+                subject: `${code} is your Cyber Store verification code`,
+                html,
+            });
+            return result.success;
+        });
+    }
+    /**
      * Send Official Tax Invoice & Payment Receipt Email matching frontend invoice design
      */
     static sendPaymentReceiptEmail(_a) {

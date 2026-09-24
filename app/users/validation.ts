@@ -111,3 +111,17 @@ export const setPasswordSchema: ValidateSchema = {
   }),
 };
 
+export const verifyEmailSchema: ValidateSchema = {
+  body: z.object({
+    code: z.string().min(6, "Verification code must be 6 digits").max(6, "Verification code must be 6 digits"),
+    email: z.string().email("Invalid email address").optional(),
+  }),
+};
+
+export const resendVerificationSchema: ValidateSchema = {
+  body: z.object({
+    email: z.string().email("Invalid email address").optional(),
+  }),
+};
+
+

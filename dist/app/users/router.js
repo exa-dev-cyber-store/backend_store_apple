@@ -64,6 +64,9 @@ router.get('/me', auth_1.authenticate, controller_1.me);
 router.put('/me', auth_1.authenticate, (0, validator_1.validate)(validation_1.updateProfileSchema), controller_1.updateProfile);
 router.put('/profile', auth_1.authenticate, (0, validator_1.validate)(validation_1.updateProfileSchema), controller_1.updateProfile);
 router.post('/avatar', auth_1.authenticate, upload.single('avatar'), controller_1.uploadAvatar);
+// Email Verification & Onboarding routes
+router.post('/verify-email', (0, validator_1.validate)(validation_1.verifyEmailSchema), controller_1.verifyEmail);
+router.post('/resend-verification', (0, validator_1.validate)(validation_1.resendVerificationSchema), controller_1.resendVerificationCode);
 // Set Password & Account Management (OAuth Onboarding / Direct Setting)
 router.post('/set-password', auth_1.authenticate, (0, validator_1.validate)(validation_1.setPasswordSchema), controller_1.setPassword);
 // Account Linking & Unbinding routes

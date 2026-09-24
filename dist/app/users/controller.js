@@ -23,7 +23,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.handleAppleNotifications = exports.adminCreateUser = exports.deleteUser = exports.updateUserRole = exports.getUserById = exports.getUsers = exports.resetPassword = exports.forgotPassword = exports.setPassword = exports.unbindAppleAccount = exports.linkAppleAccount = exports.linkGoogleAccount = exports.verifyAppleAuth = exports.verifyGoogleAuth = exports.getLinkedAccounts = exports.uploadAvatar = exports.updateProfile = exports.me = exports.logout = exports.refreshAccessToken = exports.loginGoogle = exports.login = exports.createUser = exports.issueUserTokens = exports.localStrategy = void 0;
+exports.handleAppleNotifications = exports.adminCreateUser = exports.deleteUser = exports.updateUserRole = exports.getUserById = exports.getUsers = exports.resetPassword = exports.forgotPassword = exports.resendVerificationCode = exports.verifyEmail = exports.setPassword = exports.unbindAppleAccount = exports.linkAppleAccount = exports.linkGoogleAccount = exports.verifyAppleAuth = exports.verifyGoogleAuth = exports.getLinkedAccounts = exports.uploadAvatar = exports.updateProfile = exports.me = exports.logout = exports.refreshAccessToken = exports.loginGoogle = exports.login = exports.createUser = exports.issueUserTokens = exports.localStrategy = void 0;
 exports.authenticateWithAppleCore = authenticateWithAppleCore;
 const model_1 = __importDefault(require("./model"));
 const refreshTokenModel_1 = __importDefault(require("./refreshTokenModel"));
@@ -86,12 +86,40 @@ exports.createUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(v
         throw new errors_1.ConflictError('Email already exists');
     }
     const hashedPassword = yield bcrypt_1.default.hash(password, 10);
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const cart = new model_2.default();
-    const user = new model_1.default({ password: hashedPassword, name, email, hasCustomPassword: true });
+    const user = new model_1.default({
+        password: hashedPassword,
+        name,
+        email,
+        hasCustomPassword: true,
+        isEmailVerified: false,
+        emailVerificationCode: verificationCode,
+        emailVerificationExpires: new Date(Date.now() + 15 * 60 * 1000), // 15 mins
+        emailVerificationSentAt: new Date(),
+    });
     user.cart = cart._id;
     yield user.save();
     yield cart.save();
-    const response = response_1.ApiResponse.created(user, 'User registered successfully');
+    // Send verification code asynchronously
+    emailService_1.EmailService.sendVerificationCodeEmail({
+        to: user.email,
+        name: user.name,
+        code: verificationCode,
+    }).catch((err) => console.error('[EmailService] Registration verification email dispatch notice:', err.message));
+    const tokens = yield (0, exports.issueUserTokens)(user, req);
+    (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
+    const response = response_1.ApiResponse.created(Object.assign(Object.assign({}, tokens), { name: user.name, email: user.email, role: user.role, isEmailVerified: false, requiresEmailVerification: true, user: {
+            _id: user._id,
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            isEmailVerified: false,
+            requiresEmailVerification: true,
+            hasCustomPassword: true,
+            signupProvider: 'local',
+        } }), 'User registered successfully. A 6-digit verification code has been sent to your email.');
     res.status(201).json(response);
 }));
 const login = (req, res, next) => {
@@ -218,14 +246,17 @@ exports.me = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, v
     if (!req.user) {
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
-    const userDoc = yield model_1.default.findById(req.user._id).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword');
+    const userDoc = yield model_1.default.findById(req.user._id).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword isEmailVerified');
     const isAppleSignup = (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) && !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId));
     const googleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) || ((_a = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
     const appleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) || ((_b = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple')));
     const canLinkGoogle = isAppleSignup && !googleLinked;
     const canUnbindApple = appleLinked && googleLinked; // Unbind apple hanya jika google sudah terhubung
+    const isEmailVerified = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.isEmailVerified) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId));
+    const requiresEmailVerification = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'local' && !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.isEmailVerified));
     const response = response_1.ApiResponse.success({
-        user: Object.assign(Object.assign({}, req.user), { email: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.email) || req.user.email, name: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.name) || req.user.name, avatar: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.avatar) || null, signupProvider: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) || 'local', hasCustomPassword: Boolean(userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword), requiresPasswordSetup: !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword), googleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId, googleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleEmail, appleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId, appleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail, authProviders: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) || [], linkedAccounts: {
+        user: Object.assign(Object.assign({}, req.user), { email: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.email) || req.user.email, name: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.name) || req.user.name, avatar: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.avatar) || null, signupProvider: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) || 'local', hasCustomPassword: Boolean(userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword), requiresPasswordSetup: !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword), isEmailVerified,
+            requiresEmailVerification, googleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId, googleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleEmail, appleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId, appleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail, authProviders: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) || [], linkedAccounts: {
                 google: googleLinked,
                 apple: appleLinked,
                 canLinkGoogle,
@@ -774,6 +805,96 @@ exports.setPassword = errorHandler_1.default.catchAsync((req, res) => __awaiter(
             authProviders: updatedUser.authProviders || [],
         },
     }, 'Password set successfully');
+    res.status(200).json(response);
+}));
+exports.verifyEmail = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
+    const { code, email: inputEmail } = req.body;
+    const targetEmail = (_c = (_b = (inputEmail || ((_a = req.user) === null || _a === void 0 ? void 0 : _a.email))) === null || _b === void 0 ? void 0 : _b.toLowerCase()) === null || _c === void 0 ? void 0 : _c.trim();
+    if (!targetEmail) {
+        throw new errors_1.BadRequestError('Email address is required');
+    }
+    if (!code || code.trim().length !== 6) {
+        throw new errors_1.BadRequestError('6-digit verification code is required');
+    }
+    const user = yield model_1.default.findOne({ email: targetEmail });
+    if (!user) {
+        throw new errors_1.NotFoundError('User not found');
+    }
+    if (user.isEmailVerified) {
+        return res.status(200).json(response_1.ApiResponse.success({
+            isEmailVerified: true,
+            requiresEmailVerification: false,
+            user: {
+                _id: user._id,
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                isEmailVerified: true,
+            },
+        }, 'Email is already verified'));
+    }
+    if (!user.emailVerificationCode || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
+        throw new errors_1.BadRequestError('Verification code has expired. Please request a new code.');
+    }
+    if (user.emailVerificationCode.trim() !== code.trim()) {
+        throw new errors_1.BadRequestError('Invalid verification code. Please check and try again.');
+    }
+    user.isEmailVerified = true;
+    user.emailVerificationCode = undefined;
+    user.emailVerificationExpires = undefined;
+    yield user.save();
+    const response = response_1.ApiResponse.success({
+        isEmailVerified: true,
+        requiresEmailVerification: false,
+        user: {
+            _id: user._id,
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            avatar: user.avatar || null,
+            isEmailVerified: true,
+            requiresEmailVerification: false,
+            signupProvider: user.signupProvider,
+        },
+    }, 'Email verified successfully');
+    res.status(200).json(response);
+}));
+exports.resendVerificationCode = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
+    const { email: inputEmail } = req.body;
+    const targetEmail = (_c = (_b = (inputEmail || ((_a = req.user) === null || _a === void 0 ? void 0 : _a.email))) === null || _b === void 0 ? void 0 : _b.toLowerCase()) === null || _c === void 0 ? void 0 : _c.trim();
+    if (!targetEmail) {
+        throw new errors_1.BadRequestError('Email address is required');
+    }
+    const user = yield model_1.default.findOne({ email: targetEmail });
+    if (!user) {
+        throw new errors_1.NotFoundError('User not found');
+    }
+    if (user.isEmailVerified) {
+        return res.status(200).json(response_1.ApiResponse.success({ isEmailVerified: true }, 'Email is already verified'));
+    }
+    const now = Date.now();
+    if (user.emailVerificationSentAt && now - user.emailVerificationSentAt.getTime() < 60000) {
+        const waitSeconds = Math.ceil((60000 - (now - user.emailVerificationSentAt.getTime())) / 1000);
+        throw new errors_1.BadRequestError(`Please wait ${waitSeconds} seconds before requesting a new code.`);
+    }
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.emailVerificationCode = verificationCode;
+    user.emailVerificationExpires = new Date(now + 15 * 60 * 1000); // 15 mins
+    user.emailVerificationSentAt = new Date(now);
+    yield user.save();
+    yield emailService_1.EmailService.sendVerificationCodeEmail({
+        to: user.email,
+        name: user.name,
+        code: verificationCode,
+    });
+    const response = response_1.ApiResponse.success({
+        email: user.email,
+        cooldownSeconds: 60,
+    }, 'A new verification code has been sent to your email.');
     res.status(200).json(response);
 }));
 exports.forgotPassword = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {

@@ -29,6 +29,11 @@ export interface User extends Document {
     resetPasswordWindowStart?: Date;
     // Profile picture avatar
     avatar?: string;
+    // Email verification fields
+    isEmailVerified?: boolean;
+    emailVerificationCode?: string;
+    emailVerificationExpires?: Date;
+    emailVerificationSentAt?: Date;
     // Apple Server-to-Server notification status
     appleConsentRevoked?: boolean;
     appleConsentRevokedAt?: Date;
@@ -49,6 +54,10 @@ const userSchema = new Schema<User>({
     cart: { type: Schema.Types.ObjectId, ref: 'Cart' },
     signupProvider: { type: String, enum: ['apple', 'google', 'local'], default: 'local' },
     hasCustomPassword: { type: Boolean, default: false },
+    isEmailVerified: { type: Boolean, default: false },
+    emailVerificationCode: { type: String },
+    emailVerificationExpires: { type: Date },
+    emailVerificationSentAt: { type: Date },
     googleId: { type: String, sparse: true, index: true },
     googleEmail: { type: String },
     appleId: { type: String, sparse: true, index: true },

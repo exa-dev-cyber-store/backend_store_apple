@@ -72,13 +72,51 @@ export const createUser = ErrorHandler.catchAsync(async (req: Request, res: Resp
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const cart: Cart = new Carts();
-    const user: User = new Users({ password: hashedPassword, name, email, hasCustomPassword: true });
+    const user: User = new Users({
+        password: hashedPassword,
+        name,
+        email,
+        hasCustomPassword: true,
+        isEmailVerified: false,
+        emailVerificationCode: verificationCode,
+        emailVerificationExpires: new Date(Date.now() + 15 * 60 * 1000), // 15 mins
+        emailVerificationSentAt: new Date(),
+    });
     user.cart = cart._id;
     await user.save();
     await cart.save();
 
-    const response = ApiResponse.created(user, 'User registered successfully');
+    // Send verification code asynchronously
+    EmailService.sendVerificationCodeEmail({
+        to: user.email,
+        name: user.name,
+        code: verificationCode,
+    }).catch((err) => console.error('[EmailService] Registration verification email dispatch notice:', err.message));
+
+    const tokens = await issueUserTokens(user, req);
+    setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+
+    const response = ApiResponse.created({
+        ...tokens,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isEmailVerified: false,
+        requiresEmailVerification: true,
+        user: {
+            _id: user._id,
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            isEmailVerified: false,
+            requiresEmailVerification: true,
+            hasCustomPassword: true,
+            signupProvider: 'local',
+        },
+    }, 'User registered successfully. A 6-digit verification code has been sent to your email.');
     res.status(201).json(response);
 });
 
@@ -252,7 +290,7 @@ export const me = ErrorHandler.catchAsync(async (req: Request, res: Response) =>
     }
 
     const userDoc = await Users.findById(req.user._id).select(
-        'name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword'
+        'name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword isEmailVerified'
     );
 
     const isAppleSignup = userDoc?.signupProvider === 'apple' || Boolean(userDoc?.appleId && !userDoc?.googleId);
@@ -260,6 +298,8 @@ export const me = ErrorHandler.catchAsync(async (req: Request, res: Response) =>
     const appleLinked = Boolean(userDoc?.appleId || userDoc?.authProviders?.includes('apple'));
     const canLinkGoogle = isAppleSignup && !googleLinked;
     const canUnbindApple = appleLinked && googleLinked; // Unbind apple hanya jika google sudah terhubung
+    const isEmailVerified = Boolean(userDoc?.isEmailVerified || userDoc?.googleId || userDoc?.appleId);
+    const requiresEmailVerification = Boolean(userDoc?.signupProvider === 'local' && !userDoc?.isEmailVerified);
 
     const response = ApiResponse.success({
         user: {
@@ -270,6 +310,8 @@ export const me = ErrorHandler.catchAsync(async (req: Request, res: Response) =>
             signupProvider: userDoc?.signupProvider || 'local',
             hasCustomPassword: Boolean(userDoc?.hasCustomPassword),
             requiresPasswordSetup: !userDoc?.hasCustomPassword,
+            isEmailVerified,
+            requiresEmailVerification,
             googleId: userDoc?.googleId,
             googleEmail: userDoc?.googleEmail,
             appleId: userDoc?.appleId,
@@ -974,6 +1016,119 @@ export const setPassword = ErrorHandler.catchAsync(async (req: Request, res: Res
             },
         },
         'Password set successfully'
+    );
+
+    res.status(200).json(response);
+});
+
+export const verifyEmail = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { code, email: inputEmail } = req.body as { code: string; email?: string };
+    const targetEmail = (inputEmail || req.user?.email)?.toLowerCase()?.trim();
+
+    if (!targetEmail) {
+        throw new BadRequestError('Email address is required');
+    }
+
+    if (!code || code.trim().length !== 6) {
+        throw new BadRequestError('6-digit verification code is required');
+    }
+
+    const user = await Users.findOne({ email: targetEmail });
+    if (!user) {
+        throw new NotFoundError('User not found');
+    }
+
+    if (user.isEmailVerified) {
+        return res.status(200).json(ApiResponse.success({
+            isEmailVerified: true,
+            requiresEmailVerification: false,
+            user: {
+                _id: user._id,
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                isEmailVerified: true,
+            },
+        }, 'Email is already verified'));
+    }
+
+    if (!user.emailVerificationCode || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
+        throw new BadRequestError('Verification code has expired. Please request a new code.');
+    }
+
+    if (user.emailVerificationCode.trim() !== code.trim()) {
+        throw new BadRequestError('Invalid verification code. Please check and try again.');
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationCode = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    const response = ApiResponse.success(
+        {
+            isEmailVerified: true,
+            requiresEmailVerification: false,
+            user: {
+                _id: user._id,
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                avatar: user.avatar || null,
+                isEmailVerified: true,
+                requiresEmailVerification: false,
+                signupProvider: user.signupProvider,
+            },
+        },
+        'Email verified successfully'
+    );
+
+    res.status(200).json(response);
+});
+
+export const resendVerificationCode = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    const { email: inputEmail } = req.body as { email?: string };
+    const targetEmail = (inputEmail || req.user?.email)?.toLowerCase()?.trim();
+
+    if (!targetEmail) {
+        throw new BadRequestError('Email address is required');
+    }
+
+    const user = await Users.findOne({ email: targetEmail });
+    if (!user) {
+        throw new NotFoundError('User not found');
+    }
+
+    if (user.isEmailVerified) {
+        return res.status(200).json(ApiResponse.success({ isEmailVerified: true }, 'Email is already verified'));
+    }
+
+    const now = Date.now();
+    if (user.emailVerificationSentAt && now - user.emailVerificationSentAt.getTime() < 60000) {
+        const waitSeconds = Math.ceil((60000 - (now - user.emailVerificationSentAt.getTime())) / 1000);
+        throw new BadRequestError(`Please wait ${waitSeconds} seconds before requesting a new code.`);
+    }
+
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.emailVerificationCode = verificationCode;
+    user.emailVerificationExpires = new Date(now + 15 * 60 * 1000); // 15 mins
+    user.emailVerificationSentAt = new Date(now);
+    await user.save();
+
+    await EmailService.sendVerificationCodeEmail({
+        to: user.email,
+        name: user.name,
+        code: verificationCode,
+    });
+
+    const response = ApiResponse.success(
+        {
+            email: user.email,
+            cooldownSeconds: 60,
+        },
+        'A new verification code has been sent to your email.'
     );
 
     res.status(200).json(response);

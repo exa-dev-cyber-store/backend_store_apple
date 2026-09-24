@@ -18,6 +18,8 @@ import {
     forgotPassword,
     resetPassword,
     setPassword,
+    verifyEmail,
+    resendVerificationCode,
     getUsers,
     getUserById,
     updateUserRole,
@@ -42,6 +44,8 @@ import {
     forgotPasswordSchema,
     resetPasswordSchema,
     setPasswordSchema,
+    verifyEmailSchema,
+    resendVerificationSchema,
     linkGoogleSchema,
     updateProfileSchema
 } from "./validation";
@@ -68,6 +72,10 @@ router.get('/me', authenticate, me);
 router.put('/me', authenticate, validate(updateProfileSchema), updateProfile);
 router.put('/profile', authenticate, validate(updateProfileSchema), updateProfile);
 router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);
+
+// Email Verification & Onboarding routes
+router.post('/verify-email', validate(verifyEmailSchema), verifyEmail);
+router.post('/resend-verification', validate(resendVerificationSchema), resendVerificationCode);
 
 // Set Password & Account Management (OAuth Onboarding / Direct Setting)
 router.post('/set-password', authenticate, validate(setPasswordSchema), setPassword);
