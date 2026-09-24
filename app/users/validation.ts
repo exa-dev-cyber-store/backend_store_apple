@@ -100,3 +100,14 @@ export const updateProfileSchema: ValidateSchema = {
     name: z.string().min(2, "Name must be at least 2 characters").max(100, "Name must not exceed 100 characters"),
   }),
 };
+
+export const setPasswordSchema: ValidateSchema = {
+  body: z.object({
+    password: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string().min(6, "Confirm password must be at least 6 characters").optional(),
+  }).refine((data) => !data.confirmPassword || data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  }),
+};
+

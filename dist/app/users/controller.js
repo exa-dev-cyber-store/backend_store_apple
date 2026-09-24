@@ -23,7 +23,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.handleAppleNotifications = exports.adminCreateUser = exports.deleteUser = exports.updateUserRole = exports.getUserById = exports.getUsers = exports.resetPassword = exports.forgotPassword = exports.unbindAppleAccount = exports.linkAppleAccount = exports.linkGoogleAccount = exports.verifyAppleAuth = exports.verifyGoogleAuth = exports.getLinkedAccounts = exports.uploadAvatar = exports.updateProfile = exports.me = exports.logout = exports.refreshAccessToken = exports.loginGoogle = exports.login = exports.createUser = exports.issueUserTokens = exports.localStrategy = void 0;
+exports.handleAppleNotifications = exports.adminCreateUser = exports.deleteUser = exports.updateUserRole = exports.getUserById = exports.getUsers = exports.resetPassword = exports.forgotPassword = exports.setPassword = exports.unbindAppleAccount = exports.linkAppleAccount = exports.linkGoogleAccount = exports.verifyAppleAuth = exports.verifyGoogleAuth = exports.getLinkedAccounts = exports.uploadAvatar = exports.updateProfile = exports.me = exports.logout = exports.refreshAccessToken = exports.loginGoogle = exports.login = exports.createUser = exports.issueUserTokens = exports.localStrategy = void 0;
 exports.authenticateWithAppleCore = authenticateWithAppleCore;
 const model_1 = __importDefault(require("./model"));
 const refreshTokenModel_1 = __importDefault(require("./refreshTokenModel"));
@@ -87,7 +87,7 @@ exports.createUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(v
     }
     const hashedPassword = yield bcrypt_1.default.hash(password, 10);
     const cart = new model_2.default();
-    const user = new model_1.default({ password: hashedPassword, name, email });
+    const user = new model_1.default({ password: hashedPassword, name, email, hasCustomPassword: true });
     user.cart = cart._id;
     yield user.save();
     yield cart.save();
@@ -218,14 +218,14 @@ exports.me = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, v
     if (!req.user) {
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
-    const userDoc = yield model_1.default.findById(req.user._id).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders');
+    const userDoc = yield model_1.default.findById(req.user._id).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword');
     const isAppleSignup = (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) && !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId));
     const googleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) || ((_a = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
     const appleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) || ((_b = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple')));
     const canLinkGoogle = isAppleSignup && !googleLinked;
     const canUnbindApple = appleLinked && googleLinked; // Unbind apple hanya jika google sudah terhubung
     const response = response_1.ApiResponse.success({
-        user: Object.assign(Object.assign({}, req.user), { email: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.email) || req.user.email, name: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.name) || req.user.name, avatar: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.avatar) || null, signupProvider: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) || 'local', googleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId, googleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleEmail, appleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId, appleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail, authProviders: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) || [], linkedAccounts: {
+        user: Object.assign(Object.assign({}, req.user), { email: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.email) || req.user.email, name: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.name) || req.user.name, avatar: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.avatar) || null, signupProvider: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) || 'local', hasCustomPassword: Boolean(userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword), requiresPasswordSetup: !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword), googleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId, googleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleEmail, appleId: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId, appleEmail: userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail, authProviders: (userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) || [], linkedAccounts: {
                 google: googleLinked,
                 apple: appleLinked,
                 canLinkGoogle,
@@ -410,12 +410,15 @@ exports.verifyGoogleAuth = errorHandler_1.default.catchAsync((req, res) => __awa
     }
     const tokens = yield (0, exports.issueUserTokens)(user, req);
     (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
-    const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, email: user.email, role: user.role, avatar: user.avatar || googlePayload.picture || null, picture: user.avatar || googlePayload.picture || null, user: {
+    const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, email: user.email, role: user.role, avatar: user.avatar || googlePayload.picture || null, picture: user.avatar || googlePayload.picture || null, hasCustomPassword: Boolean(user.hasCustomPassword), requiresPasswordSetup: !user.hasCustomPassword, user: {
             _id: user._id,
+            id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             avatar: user.avatar || googlePayload.picture || null,
+            hasCustomPassword: Boolean(user.hasCustomPassword),
+            requiresPasswordSetup: !user.hasCustomPassword,
         } }), 'Google authentication verified');
     res.status(200).json(response);
 }));
@@ -556,12 +559,17 @@ exports.verifyAppleAuth = errorHandler_1.default.catchAsync((req, res) => __awai
         role: user.role,
         avatar: user.avatar || null,
         appleUserId,
+        hasCustomPassword: Boolean(user.hasCustomPassword),
+        requiresPasswordSetup: !user.hasCustomPassword,
         user: {
             _id: user._id,
+            id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             avatar: user.avatar || null,
+            hasCustomPassword: Boolean(user.hasCustomPassword),
+            requiresPasswordSetup: !user.hasCustomPassword,
         },
     }, 'Apple authentication verified successfully');
     res.status(200).json(response);
@@ -732,6 +740,42 @@ exports.unbindAppleAccount = errorHandler_1.default.catchAsync((req, res) => __a
     }, 'Apple account disconnected successfully. Your account is now fully connected via your Google account.');
     res.status(200).json(response);
 }));
+exports.setPassword = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!req.user) {
+        throw new errors_1.UnauthorizedError('Unauthorized access');
+    }
+    const { password } = req.body;
+    if (!password || password.length < 6) {
+        throw new errors_1.BadRequestError('Password must be at least 6 characters');
+    }
+    const hashedPassword = yield bcrypt_1.default.hash(password, 10);
+    const updatedUser = yield model_1.default.findByIdAndUpdate(req.user._id, {
+        password: hashedPassword,
+        hasCustomPassword: true,
+    }, { new: true }).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword');
+    if (!updatedUser) {
+        throw new errors_1.NotFoundError('User not found');
+    }
+    const response = response_1.ApiResponse.success({
+        user: {
+            id: updatedUser._id,
+            _id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            role: updatedUser.role,
+            avatar: updatedUser.avatar || null,
+            hasCustomPassword: true,
+            requiresPasswordSetup: false,
+            signupProvider: updatedUser.signupProvider,
+            googleId: updatedUser.googleId,
+            googleEmail: updatedUser.googleEmail,
+            appleId: updatedUser.appleId,
+            appleEmail: updatedUser.appleEmail,
+            authProviders: updatedUser.authProviders || [],
+        },
+    }, 'Password set successfully');
+    res.status(200).json(response);
+}));
 exports.forgotPassword = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { email } = req.body;
     if (!email || !email.trim()) {
@@ -802,6 +846,7 @@ exports.resetPassword = errorHandler_1.default.catchAsync((req, res) => __awaite
     }
     const hashedPassword = yield bcrypt_1.default.hash(password, 10);
     user.password = hashedPassword;
+    user.hasCustomPassword = true;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     // Clear active session tokens so existing sessions must re-login

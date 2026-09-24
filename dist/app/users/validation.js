@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateProfileSchema = exports.linkGoogleSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.createUserByAdminSchema = exports.userIdParamSchema = exports.updateUserRoleSchema = exports.listUsersSchema = exports.verifyGoogleAuthSchema = exports.loginGoogleSchema = exports.loginSchema = exports.registerSchema = void 0;
+exports.setPasswordSchema = exports.updateProfileSchema = exports.linkGoogleSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.createUserByAdminSchema = exports.userIdParamSchema = exports.updateUserRoleSchema = exports.listUsersSchema = exports.verifyGoogleAuthSchema = exports.loginGoogleSchema = exports.loginSchema = exports.registerSchema = void 0;
 const zod_1 = require("zod");
 exports.registerSchema = {
     body: zod_1.z.object({
@@ -88,5 +88,14 @@ exports.linkGoogleSchema = {
 exports.updateProfileSchema = {
     body: zod_1.z.object({
         name: zod_1.z.string().min(2, "Name must be at least 2 characters").max(100, "Name must not exceed 100 characters"),
+    }),
+};
+exports.setPasswordSchema = {
+    body: zod_1.z.object({
+        password: zod_1.z.string().min(6, "Password must be at least 6 characters"),
+        confirmPassword: zod_1.z.string().min(6, "Confirm password must be at least 6 characters").optional(),
+    }).refine((data) => !data.confirmPassword || data.password === data.confirmPassword, {
+        message: "Passwords do not match",
+        path: ["confirmPassword"],
     }),
 };

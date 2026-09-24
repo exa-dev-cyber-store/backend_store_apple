@@ -73,7 +73,7 @@ export const createUser = ErrorHandler.catchAsync(async (req: Request, res: Resp
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const cart: Cart = new Carts();
-    const user: User = new Users({ password: hashedPassword, name, email });
+    const user: User = new Users({ password: hashedPassword, name, email, hasCustomPassword: true });
     user.cart = cart._id;
     await user.save();
     await cart.save();
@@ -252,7 +252,7 @@ export const me = ErrorHandler.catchAsync(async (req: Request, res: Response) =>
     }
 
     const userDoc = await Users.findById(req.user._id).select(
-        'name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders'
+        'name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword'
     );
 
     const isAppleSignup = userDoc?.signupProvider === 'apple' || Boolean(userDoc?.appleId && !userDoc?.googleId);
@@ -268,6 +268,8 @@ export const me = ErrorHandler.catchAsync(async (req: Request, res: Response) =>
             name: userDoc?.name || req.user.name,
             avatar: userDoc?.avatar || null,
             signupProvider: userDoc?.signupProvider || 'local',
+            hasCustomPassword: Boolean(userDoc?.hasCustomPassword),
+            requiresPasswordSetup: !userDoc?.hasCustomPassword,
             googleId: userDoc?.googleId,
             googleEmail: userDoc?.googleEmail,
             appleId: userDoc?.appleId,
@@ -515,12 +517,17 @@ export const verifyGoogleAuth = ErrorHandler.catchAsync(async (req: Request, res
         role: user.role,
         avatar: user.avatar || googlePayload.picture || null,
         picture: user.avatar || googlePayload.picture || null,
+        hasCustomPassword: Boolean(user.hasCustomPassword),
+        requiresPasswordSetup: !user.hasCustomPassword,
         user: {
             _id: user._id,
+            id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             avatar: user.avatar || googlePayload.picture || null,
+            hasCustomPassword: Boolean(user.hasCustomPassword),
+            requiresPasswordSetup: !user.hasCustomPassword,
         },
     }, 'Google authentication verified');
 
@@ -690,12 +697,17 @@ export const verifyAppleAuth = ErrorHandler.catchAsync(async (req: Request, res:
             role: user.role,
             avatar: user.avatar || null,
             appleUserId,
+            hasCustomPassword: Boolean(user.hasCustomPassword),
+            requiresPasswordSetup: !user.hasCustomPassword,
             user: {
                 _id: user._id,
+                id: user._id,
                 name: user.name,
                 email: user.email,
                 role: user.role,
                 avatar: user.avatar || null,
+                hasCustomPassword: Boolean(user.hasCustomPassword),
+                requiresPasswordSetup: !user.hasCustomPassword,
             },
         },
         'Apple authentication verified successfully'
@@ -918,6 +930,55 @@ export const unbindAppleAccount = ErrorHandler.catchAsync(async (req: Request, r
     res.status(200).json(response);
 });
 
+export const setPassword = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    if (!req.user) {
+        throw new UnauthorizedError('Unauthorized access');
+    }
+
+    const { password } = req.body as { password?: string };
+    if (!password || password.length < 6) {
+        throw new BadRequestError('Password must be at least 6 characters');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const updatedUser = await Users.findByIdAndUpdate(
+        req.user._id,
+        {
+            password: hashedPassword,
+            hasCustomPassword: true,
+        },
+        { new: true }
+    ).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword');
+
+    if (!updatedUser) {
+        throw new NotFoundError('User not found');
+    }
+
+    const response = ApiResponse.success(
+        {
+            user: {
+                id: updatedUser._id,
+                _id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                role: updatedUser.role,
+                avatar: updatedUser.avatar || null,
+                hasCustomPassword: true,
+                requiresPasswordSetup: false,
+                signupProvider: updatedUser.signupProvider,
+                googleId: updatedUser.googleId,
+                googleEmail: updatedUser.googleEmail,
+                appleId: updatedUser.appleId,
+                appleEmail: updatedUser.appleEmail,
+                authProviders: updatedUser.authProviders || [],
+            },
+        },
+        'Password set successfully'
+    );
+
+    res.status(200).json(response);
+});
+
 export const forgotPassword = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
     const { email } = req.body as { email?: string };
 
@@ -1013,6 +1074,7 @@ export const resetPassword = ErrorHandler.catchAsync(async (req: Request, res: R
 
     const hashedPassword = await bcrypt.hash(password, 10);
     user.password = hashedPassword;
+    user.hasCustomPassword = true;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     // Clear active session tokens so existing sessions must re-login

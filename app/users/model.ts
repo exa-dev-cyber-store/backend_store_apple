@@ -16,6 +16,7 @@ export interface User extends Document {
     updatedAt: Date;
     // Auth & Account Linking fields
     signupProvider?: 'apple' | 'google' | 'local';
+    hasCustomPassword?: boolean;
     googleId?: string;
     googleEmail?: string;
     appleId?: string;
@@ -47,6 +48,7 @@ const userSchema = new Schema<User>({
     likes: [{ type: Schema.Types.ObjectId, ref: 'Product' }],
     cart: { type: Schema.Types.ObjectId, ref: 'Cart' },
     signupProvider: { type: String, enum: ['apple', 'google', 'local'], default: 'local' },
+    hasCustomPassword: { type: Boolean, default: false },
     googleId: { type: String, sparse: true, index: true },
     googleEmail: { type: String },
     appleId: { type: String, sparse: true, index: true },

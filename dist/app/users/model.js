@@ -12,6 +12,7 @@ const userSchema = new mongoose_1.Schema({
     likes: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Product' }],
     cart: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Cart' },
     signupProvider: { type: String, enum: ['apple', 'google', 'local'], default: 'local' },
+    hasCustomPassword: { type: Boolean, default: false },
     googleId: { type: String, sparse: true, index: true },
     googleEmail: { type: String },
     appleId: { type: String, sparse: true, index: true },

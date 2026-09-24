@@ -64,6 +64,8 @@ router.get('/me', auth_1.authenticate, controller_1.me);
 router.put('/me', auth_1.authenticate, (0, validator_1.validate)(validation_1.updateProfileSchema), controller_1.updateProfile);
 router.put('/profile', auth_1.authenticate, (0, validator_1.validate)(validation_1.updateProfileSchema), controller_1.updateProfile);
 router.post('/avatar', auth_1.authenticate, upload.single('avatar'), controller_1.uploadAvatar);
+// Set Password & Account Management (OAuth Onboarding / Direct Setting)
+router.post('/set-password', auth_1.authenticate, (0, validator_1.validate)(validation_1.setPasswordSchema), controller_1.setPassword);
 // Account Linking & Unbinding routes
 router.get('/linked-accounts', auth_1.authenticate, controller_1.getLinkedAccounts);
 router.post('/link/google', auth_1.authenticate, (0, validator_1.validate)(validation_1.linkGoogleSchema), controller_1.linkGoogleAccount);

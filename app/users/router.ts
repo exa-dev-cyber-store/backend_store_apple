@@ -17,6 +17,7 @@ import {
     unbindAppleAccount,
     forgotPassword,
     resetPassword,
+    setPassword,
     getUsers,
     getUserById,
     updateUserRole,
@@ -40,6 +41,7 @@ import {
     createUserByAdminSchema,
     forgotPasswordSchema,
     resetPasswordSchema,
+    setPasswordSchema,
     linkGoogleSchema,
     updateProfileSchema
 } from "./validation";
@@ -66,6 +68,9 @@ router.get('/me', authenticate, me);
 router.put('/me', authenticate, validate(updateProfileSchema), updateProfile);
 router.put('/profile', authenticate, validate(updateProfileSchema), updateProfile);
 router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);
+
+// Set Password & Account Management (OAuth Onboarding / Direct Setting)
+router.post('/set-password', authenticate, validate(setPasswordSchema), setPassword);
 
 // Account Linking & Unbinding routes
 router.get('/linked-accounts', authenticate, getLinkedAccounts);
