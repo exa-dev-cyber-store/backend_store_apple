@@ -16,7 +16,7 @@ import { processAndUploadAvatar } from "../../utils/image";
 
 export const localStrategy = async (email: string, password: string, done: any) => {
     try {
-        const user: User | null = await Users.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name');
+        const user: User | null = await Users.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
         if (!user || !user.password) {
             return done(null, false, { message: 'Invalid email or password' });
         }
@@ -95,11 +95,7 @@ export const createUser = ErrorHandler.catchAsync(async (req: Request, res: Resp
         code: verificationCode,
     }).catch((err) => console.error('[EmailService] Registration verification email dispatch notice:', err.message));
 
-    const tokens = await issueUserTokens(user, req);
-    setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-
     const response = ApiResponse.created({
-        ...tokens,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -129,6 +125,50 @@ export const login = (req: Request, res: Response, next: NextFunction) => {
             return next(new UnauthorizedError(info?.message || 'Invalid email or password'));
         }
         try {
+            const isOAuthUser = Boolean(user.googleId || user.appleId || (user.signupProvider && user.signupProvider !== 'local'));
+            const isEmailVerified = Boolean(user.isEmailVerified || isOAuthUser);
+            const requiresEmailVerification = !isOAuthUser && !user.isEmailVerified;
+
+            if (requiresEmailVerification) {
+                // Ensure active verification code exists or send a fresh one
+                const userDoc = await Users.findById(user._id);
+                if (userDoc) {
+                    const now = Date.now();
+                    if (!userDoc.emailVerificationCode || !userDoc.emailVerificationExpires || userDoc.emailVerificationExpires < new Date()) {
+                        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+                        userDoc.emailVerificationCode = verificationCode;
+                        userDoc.emailVerificationExpires = new Date(now + 15 * 60 * 1000);
+                        userDoc.emailVerificationSentAt = new Date(now);
+                        await userDoc.save();
+
+                        EmailService.sendVerificationCodeEmail({
+                            to: userDoc.email,
+                            name: userDoc.name,
+                            code: verificationCode,
+                        }).catch((err) => console.error('[EmailService] Login verification email notice:', err.message));
+                    }
+                }
+
+                return res.status(200).json(ApiResponse.success(
+                    {
+                        requiresEmailVerification: true,
+                        isEmailVerified: false,
+                        email: user.email,
+                        user: {
+                            _id: user._id,
+                            name: user.name,
+                            email: user.email,
+                            role: user.role,
+                            avatar: user.avatar || null,
+                            isEmailVerified: false,
+                            requiresEmailVerification: true,
+                            signupProvider: user.signupProvider || 'local',
+                        },
+                    },
+                    'Email verification is required before signing in. A 6-digit code has been sent to your email.'
+                ));
+            }
+
             const tokens = await issueUserTokens(user, req);
             setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
             const response = ApiResponse.success(
@@ -138,12 +178,17 @@ export const login = (req: Request, res: Response, next: NextFunction) => {
                     role: user.role,
                     email: user.email,
                     avatar: user.avatar || null,
+                    isEmailVerified: true,
+                    requiresEmailVerification: false,
                     user: {
                         _id: user._id,
                         name: user.name,
                         email: user.email,
                         role: user.role,
                         avatar: user.avatar || null,
+                        isEmailVerified: true,
+                        requiresEmailVerification: false,
+                        signupProvider: user.signupProvider || 'local',
                     },
                 },
                 'Login successful'
@@ -1039,7 +1084,10 @@ export const verifyEmail = ErrorHandler.catchAsync(async (req: Request, res: Res
     }
 
     if (user.isEmailVerified) {
+        const tokens = await issueUserTokens(user, req);
+        setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
         return res.status(200).json(ApiResponse.success({
+            ...tokens,
             isEmailVerified: true,
             requiresEmailVerification: false,
             user: {
@@ -1048,7 +1096,10 @@ export const verifyEmail = ErrorHandler.catchAsync(async (req: Request, res: Res
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                avatar: user.avatar || null,
                 isEmailVerified: true,
+                requiresEmailVerification: false,
+                signupProvider: user.signupProvider || 'local',
             },
         }, 'Email is already verified'));
     }
@@ -1066,8 +1117,12 @@ export const verifyEmail = ErrorHandler.catchAsync(async (req: Request, res: Res
     user.emailVerificationExpires = undefined;
     await user.save();
 
+    const tokens = await issueUserTokens(user, req);
+    setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+
     const response = ApiResponse.success(
         {
+            ...tokens,
             isEmailVerified: true,
             requiresEmailVerification: false,
             user: {
@@ -1079,7 +1134,7 @@ export const verifyEmail = ErrorHandler.catchAsync(async (req: Request, res: Res
                 avatar: user.avatar || null,
                 isEmailVerified: true,
                 requiresEmailVerification: false,
-                signupProvider: user.signupProvider,
+                signupProvider: user.signupProvider || 'local',
             },
         },
         'Email verified successfully'

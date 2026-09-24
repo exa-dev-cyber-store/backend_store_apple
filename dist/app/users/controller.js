@@ -40,7 +40,7 @@ const emailService_1 = require("../services/emailService");
 const image_1 = require("../../utils/image");
 const localStrategy = (email, password, done) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const user = yield model_1.default.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name');
+        const user = yield model_1.default.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
         if (!user || !user.password) {
             return done(null, false, { message: 'Invalid email or password' });
         }
@@ -107,9 +107,13 @@ exports.createUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(v
         name: user.name,
         code: verificationCode,
     }).catch((err) => console.error('[EmailService] Registration verification email dispatch notice:', err.message));
-    const tokens = yield (0, exports.issueUserTokens)(user, req);
-    (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
-    const response = response_1.ApiResponse.created(Object.assign(Object.assign({}, tokens), { name: user.name, email: user.email, role: user.role, isEmailVerified: false, requiresEmailVerification: true, user: {
+    const response = response_1.ApiResponse.created({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isEmailVerified: false,
+        requiresEmailVerification: true,
+        user: {
             _id: user._id,
             id: user._id,
             name: user.name,
@@ -119,7 +123,8 @@ exports.createUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(v
             requiresEmailVerification: true,
             hasCustomPassword: true,
             signupProvider: 'local',
-        } }), 'User registered successfully. A 6-digit verification code has been sent to your email.');
+        },
+    }, 'User registered successfully. A 6-digit verification code has been sent to your email.');
     res.status(201).json(response);
 }));
 const login = (req, res, next) => {
@@ -131,14 +136,54 @@ const login = (req, res, next) => {
             return next(new errors_1.UnauthorizedError((info === null || info === void 0 ? void 0 : info.message) || 'Invalid email or password'));
         }
         try {
+            const isOAuthUser = Boolean(user.googleId || user.appleId || (user.signupProvider && user.signupProvider !== 'local'));
+            const isEmailVerified = Boolean(user.isEmailVerified || isOAuthUser);
+            const requiresEmailVerification = !isOAuthUser && !user.isEmailVerified;
+            if (requiresEmailVerification) {
+                // Ensure active verification code exists or send a fresh one
+                const userDoc = yield model_1.default.findById(user._id);
+                if (userDoc) {
+                    const now = Date.now();
+                    if (!userDoc.emailVerificationCode || !userDoc.emailVerificationExpires || userDoc.emailVerificationExpires < new Date()) {
+                        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+                        userDoc.emailVerificationCode = verificationCode;
+                        userDoc.emailVerificationExpires = new Date(now + 15 * 60 * 1000);
+                        userDoc.emailVerificationSentAt = new Date(now);
+                        yield userDoc.save();
+                        emailService_1.EmailService.sendVerificationCodeEmail({
+                            to: userDoc.email,
+                            name: userDoc.name,
+                            code: verificationCode,
+                        }).catch((err) => console.error('[EmailService] Login verification email notice:', err.message));
+                    }
+                }
+                return res.status(200).json(response_1.ApiResponse.success({
+                    requiresEmailVerification: true,
+                    isEmailVerified: false,
+                    email: user.email,
+                    user: {
+                        _id: user._id,
+                        name: user.name,
+                        email: user.email,
+                        role: user.role,
+                        avatar: user.avatar || null,
+                        isEmailVerified: false,
+                        requiresEmailVerification: true,
+                        signupProvider: user.signupProvider || 'local',
+                    },
+                }, 'Email verification is required before signing in. A 6-digit code has been sent to your email.'));
+            }
             const tokens = yield (0, exports.issueUserTokens)(user, req);
             (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
-            const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, role: user.role, email: user.email, avatar: user.avatar || null, user: {
+            const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, role: user.role, email: user.email, avatar: user.avatar || null, isEmailVerified: true, requiresEmailVerification: false, user: {
                     _id: user._id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
                     avatar: user.avatar || null,
+                    isEmailVerified: true,
+                    requiresEmailVerification: false,
+                    signupProvider: user.signupProvider || 'local',
                 } }), 'Login successful');
             res.status(200).json(response);
         }
@@ -822,18 +867,19 @@ exports.verifyEmail = errorHandler_1.default.catchAsync((req, res) => __awaiter(
         throw new errors_1.NotFoundError('User not found');
     }
     if (user.isEmailVerified) {
-        return res.status(200).json(response_1.ApiResponse.success({
-            isEmailVerified: true,
-            requiresEmailVerification: false,
-            user: {
+        const tokens = yield (0, exports.issueUserTokens)(user, req);
+        (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
+        return res.status(200).json(response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { isEmailVerified: true, requiresEmailVerification: false, user: {
                 _id: user._id,
                 id: user._id,
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                avatar: user.avatar || null,
                 isEmailVerified: true,
-            },
-        }, 'Email is already verified'));
+                requiresEmailVerification: false,
+                signupProvider: user.signupProvider || 'local',
+            } }), 'Email is already verified'));
     }
     if (!user.emailVerificationCode || !user.emailVerificationExpires || user.emailVerificationExpires < new Date()) {
         throw new errors_1.BadRequestError('Verification code has expired. Please request a new code.');
@@ -845,10 +891,9 @@ exports.verifyEmail = errorHandler_1.default.catchAsync((req, res) => __awaiter(
     user.emailVerificationCode = undefined;
     user.emailVerificationExpires = undefined;
     yield user.save();
-    const response = response_1.ApiResponse.success({
-        isEmailVerified: true,
-        requiresEmailVerification: false,
-        user: {
+    const tokens = yield (0, exports.issueUserTokens)(user, req);
+    (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
+    const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { isEmailVerified: true, requiresEmailVerification: false, user: {
             _id: user._id,
             id: user._id,
             name: user.name,
@@ -857,9 +902,8 @@ exports.verifyEmail = errorHandler_1.default.catchAsync((req, res) => __awaiter(
             avatar: user.avatar || null,
             isEmailVerified: true,
             requiresEmailVerification: false,
-            signupProvider: user.signupProvider,
-        },
-    }, 'Email verified successfully');
+            signupProvider: user.signupProvider || 'local',
+        } }), 'Email verified successfully');
     res.status(200).json(response);
 }));
 exports.resendVerificationCode = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
