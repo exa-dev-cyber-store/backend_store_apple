@@ -75,6 +75,12 @@ app.use('/api', router_3.default);
 app.use('/api', router_10.default);
 app.use('/api', router_11.default);
 app.use('/auth', router_3.default);
+// Browser GET redirects to Frontend Web UI
+app.get(['/forgot-password', '/reset-password', '/login', '/register', '/verify-email'], (req, res) => {
+    const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
+    const queryString = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.redirect(`${clientUrl}${req.path}${queryString}`);
+});
 // 404 Not Found Handler
 app.use(errorHandler_1.default.notFound);
 // Global Centralized Error Handler

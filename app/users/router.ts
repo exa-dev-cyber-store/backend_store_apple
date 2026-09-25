@@ -87,6 +87,16 @@ router.post('/link/apple', authenticate, linkAppleAccount);
 router.post('/unbind/apple', authenticate, unbindAppleAccount);
 
 // Forgot & Reset Password routes
+router.get('/forgot-password', (req, res) => {
+    const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
+    res.redirect(`${clientUrl}/forgot-password`);
+});
+router.get('/reset-password', (req, res) => {
+    const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
+    const token = req.query.token as string | undefined;
+    const redirectUrl = token ? `${clientUrl}/reset-password?token=${encodeURIComponent(token)}` : `${clientUrl}/forgot-password`;
+    res.redirect(redirectUrl);
+});
 router.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
 router.post('/reset-password', validate(resetPasswordSchema), resetPassword);
 
