@@ -75,16 +75,6 @@ router.post('/link/google', auth_1.authenticate, (0, validator_1.validate)(valid
 router.post('/link/apple', auth_1.authenticate, controller_1.linkAppleAccount);
 router.post('/unbind/apple', auth_1.authenticate, controller_1.unbindAppleAccount);
 // Forgot & Reset Password routes
-router.get('/forgot-password', (req, res) => {
-    const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
-    res.redirect(`${clientUrl}/forgot-password`);
-});
-router.get('/reset-password', (req, res) => {
-    const clientUrl = process.env.CLIENT_URL || process.env.WEB_URL || process.env.FRONTEND_URL || 'https://apple-store.eka-dev.cloud';
-    const token = req.query.token;
-    const redirectUrl = token ? `${clientUrl}/reset-password?token=${encodeURIComponent(token)}` : `${clientUrl}/forgot-password`;
-    res.redirect(redirectUrl);
-});
 router.post('/forgot-password', (0, validator_1.validate)(validation_1.forgotPasswordSchema), controller_1.forgotPassword);
 router.post('/reset-password', (0, validator_1.validate)(validation_1.resetPasswordSchema), controller_1.resetPassword);
 // Admin User Management routes

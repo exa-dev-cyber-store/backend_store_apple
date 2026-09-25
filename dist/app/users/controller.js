@@ -415,8 +415,8 @@ exports.getLinkedAccounts = errorHandler_1.default.catchAsync((req, res) => __aw
         ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
     const appleLinked = Boolean((user.appleId || user.appleEmail || user.signupProvider === 'apple' || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
         !user.appleConsentRevoked);
-    const canLinkGoogle = isAppleSignup && !googleLinked;
-    const canUnbindApple = appleLinked && googleLinked;
+    const canLinkGoogle = !googleLinked;
+    const canUnbindApple = appleLinked && (googleLinked || Boolean(user.password && user.hasCustomPassword));
     const canLinkApple = !appleLinked;
     const response = response_1.ApiResponse.success({
         signupProvider: user.signupProvider || 'local',
@@ -698,12 +698,7 @@ exports.linkGoogleAccount = errorHandler_1.default.catchAsync((req, res) => __aw
     if (!user) {
         throw new errors_1.NotFoundError('User not found');
     }
-    // RULE: Google linking is ONLY permitted when the user signed up via Apple!
-    const isAppleSignup = user.signupProvider === 'apple' || Boolean(user.appleId);
-    if (!isAppleSignup) {
-        throw new errors_1.BadRequestError('Linking a Google account is only allowed for accounts registered via Apple.');
-    }
-    if (user.googleId) {
+    if (user.googleId || user.googleEmail) {
         throw new errors_1.BadRequestError('A Google account is already linked to your profile.');
     }
     // Verify token with Google TokenInfo or UserInfo API (supports both id_token and OAuth access_token)
