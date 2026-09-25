@@ -195,26 +195,57 @@ const login = (req, res, next) => {
 exports.login = login;
 exports.loginGoogle = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { email } = req.body;
-    let user = yield model_1.default.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
+    const normalizedEmail = email.toLowerCase().trim();
+    let user = yield model_1.default.findOne({ email: normalizedEmail }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
     if (!user) {
         const randomPassword = Math.random().toString(36).slice(2) + Date.now().toString(36);
         const hashedPassword = yield bcrypt_1.default.hash(randomPassword, 10);
         user = new model_1.default({
-            name: email.split('@')[0],
-            email,
+            name: normalizedEmail.split('@')[0],
+            email: normalizedEmail,
             password: hashedPassword,
             role: 'user',
+            signupProvider: 'google',
+            authProviders: ['google'],
+            googleEmail: normalizedEmail,
+            isEmailVerified: true,
         });
         yield user.save();
     }
+    else {
+        let needSave = false;
+        if (!user.isEmailVerified) {
+            user.isEmailVerified = true;
+            needSave = true;
+        }
+        if (!user.googleEmail) {
+            user.googleEmail = normalizedEmail;
+            needSave = true;
+        }
+        if (!user.authProviders)
+            user.authProviders = [];
+        if (!user.authProviders.includes('google')) {
+            user.authProviders.push('google');
+            needSave = true;
+        }
+        if (!user.signupProvider) {
+            user.signupProvider = 'google';
+            needSave = true;
+        }
+        if (needSave) {
+            yield user.save();
+        }
+    }
     const tokens = yield (0, exports.issueUserTokens)(user, req);
     (0, utils_1.setAuthCookies)(res, tokens.accessToken, tokens.refreshToken);
-    const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, role: user.role, email: user.email, avatar: user.avatar || null, user: {
+    const response = response_1.ApiResponse.success(Object.assign(Object.assign({}, tokens), { name: user.name, role: user.role, email: user.email, avatar: user.avatar || null, signupProvider: user.signupProvider || 'google', isEmailVerified: true, user: {
             _id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             avatar: user.avatar || null,
+            signupProvider: user.signupProvider || 'google',
+            isEmailVerified: true,
         } }), 'Google login successful');
     res.status(200).json(response);
 }));
@@ -378,8 +409,12 @@ exports.getLinkedAccounts = errorHandler_1.default.catchAsync((req, res) => __aw
         throw new errors_1.NotFoundError('User not found');
     }
     const isAppleSignup = user.signupProvider === 'apple' || Boolean(user.appleId && !user.googleId);
-    const googleLinked = Boolean(user.googleId || ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
-    const appleLinked = Boolean(user.appleId || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple')));
+    const googleLinked = Boolean(user.googleId ||
+        user.googleEmail ||
+        user.signupProvider === 'google' ||
+        ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
+    const appleLinked = Boolean((user.appleId || user.appleEmail || user.signupProvider === 'apple' || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
+        !user.appleConsentRevoked);
     const canLinkGoogle = isAppleSignup && !googleLinked;
     const canUnbindApple = appleLinked && googleLinked;
     const canLinkApple = !appleLinked;

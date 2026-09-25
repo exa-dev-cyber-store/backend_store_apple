@@ -202,18 +202,45 @@ export const login = (req: Request, res: Response, next: NextFunction) => {
 
 export const loginGoogle = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
     const { email } = req.body as { email: string };
-    let user: User | null = await Users.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
+    const normalizedEmail = email.toLowerCase().trim();
+    let user: User | null = await Users.findOne({ email: normalizedEmail }).select('-token -createdAt -updatedAt -address -phone_number -__v -password -likes -cart');
 
     if (!user) {
         const randomPassword = Math.random().toString(36).slice(2) + Date.now().toString(36);
         const hashedPassword = await bcrypt.hash(randomPassword, 10);
         user = new Users({
-            name: email.split('@')[0],
-            email,
+            name: normalizedEmail.split('@')[0],
+            email: normalizedEmail,
             password: hashedPassword,
             role: 'user',
+            signupProvider: 'google',
+            authProviders: ['google'],
+            googleEmail: normalizedEmail,
+            isEmailVerified: true,
         });
         await user.save();
+    } else {
+        let needSave = false;
+        if (!user.isEmailVerified) {
+            user.isEmailVerified = true;
+            needSave = true;
+        }
+        if (!user.googleEmail) {
+            user.googleEmail = normalizedEmail;
+            needSave = true;
+        }
+        if (!user.authProviders) user.authProviders = [];
+        if (!user.authProviders.includes('google')) {
+            user.authProviders.push('google');
+            needSave = true;
+        }
+        if (!user.signupProvider) {
+            user.signupProvider = 'google';
+            needSave = true;
+        }
+        if (needSave) {
+            await user.save();
+        }
     }
 
     const tokens = await issueUserTokens(user, req);
@@ -225,12 +252,16 @@ export const loginGoogle = ErrorHandler.catchAsync(async (req: Request, res: Res
         role: user.role,
         email: user.email,
         avatar: user.avatar || null,
+        signupProvider: user.signupProvider || 'google',
+        isEmailVerified: true,
         user: {
             _id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             avatar: user.avatar || null,
+            signupProvider: user.signupProvider || 'google',
+            isEmailVerified: true,
         },
     }, 'Google login successful');
     res.status(200).json(response);
@@ -470,8 +501,16 @@ export const getLinkedAccounts = ErrorHandler.catchAsync(async (req: Request, re
     }
 
     const isAppleSignup = user.signupProvider === 'apple' || Boolean(user.appleId && !user.googleId);
-    const googleLinked = Boolean(user.googleId || user.authProviders?.includes('google'));
-    const appleLinked = Boolean(user.appleId || user.authProviders?.includes('apple'));
+    const googleLinked = Boolean(
+        user.googleId ||
+        user.googleEmail ||
+        user.signupProvider === 'google' ||
+        user.authProviders?.includes('google')
+    );
+    const appleLinked = Boolean(
+        (user.appleId || user.appleEmail || user.signupProvider === 'apple' || user.authProviders?.includes('apple')) &&
+        !user.appleConsentRevoked
+    );
     const canLinkGoogle = isAppleSignup && !googleLinked;
     const canUnbindApple = appleLinked && googleLinked;
     const canLinkApple = !appleLinked;
