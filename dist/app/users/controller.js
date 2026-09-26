@@ -40,7 +40,8 @@ const emailService_1 = require("../services/emailService");
 const image_1 = require("../../utils/image");
 const localStrategy = (email, password, done) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const user = yield model_1.default.findOne({ email }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
+        const normalizedEmail = (email || '').toLowerCase().trim();
+        const user = yield model_1.default.findOne({ email: normalizedEmail }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
         if (!user || !user.password) {
             return done(null, false, { message: 'Invalid email or password' });
         }
@@ -322,12 +323,17 @@ exports.me = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, v
     if (!req.user) {
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
-    const userDoc = yield model_1.default.findById(req.user._id).select('name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword isEmailVerified');
+    const userDoc = yield model_1.default.findById(req.user._id).select('+password name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword isEmailVerified');
     const isAppleSignup = (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) && !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId));
-    const googleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) || ((_a = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
-    const appleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) || ((_b = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple')));
-    const canLinkGoogle = isAppleSignup && !googleLinked;
-    const canUnbindApple = appleLinked && googleLinked; // Unbind apple hanya jika google sudah terhubung
+    const googleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) ||
+        (userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleEmail) ||
+        (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'google' ||
+        ((_a = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
+    const appleLinked = Boolean(((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || ((_b = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
+        !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleConsentRevoked));
+    const hasPassword = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.password) && ((userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'local'));
+    const canLinkGoogle = !googleLinked;
+    const canUnbindApple = appleLinked && (googleLinked || hasPassword);
     const isEmailVerified = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.isEmailVerified) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId));
     const requiresEmailVerification = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'local' && !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.isEmailVerified));
     const response = response_1.ApiResponse.success({
@@ -337,7 +343,8 @@ exports.me = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, v
                 apple: appleLinked,
                 canLinkGoogle,
                 canUnbindApple,
-                canUnbindGoogle: false, // Google tidak bisa di-unbind
+                canUnbindGoogle: false,
+                requiresGoogleBeforeUnbind: appleLinked && !googleLinked && !hasPassword,
             } }),
         status: 200,
     }, 'Profile retrieved successfully');
@@ -404,7 +411,7 @@ exports.getLinkedAccounts = errorHandler_1.default.catchAsync((req, res) => __aw
     if (!req.user) {
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
-    const user = yield model_1.default.findById(req.user._id);
+    const user = yield model_1.default.findById(req.user._id).select('+password');
     if (!user) {
         throw new errors_1.NotFoundError('User not found');
     }
@@ -415,13 +422,17 @@ exports.getLinkedAccounts = errorHandler_1.default.catchAsync((req, res) => __aw
         ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
     const appleLinked = Boolean((user.appleId || user.appleEmail || user.signupProvider === 'apple' || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
         !user.appleConsentRevoked);
+    const hasPassword = Boolean(user.password && (user.hasCustomPassword || user.signupProvider === 'local'));
     const canLinkGoogle = !googleLinked;
-    const canUnbindApple = appleLinked && (googleLinked || Boolean(user.password && user.hasCustomPassword));
+    const canUnbindApple = appleLinked && (googleLinked || hasPassword);
     const canLinkApple = !appleLinked;
+    const requiresGoogleBeforeUnbind = appleLinked && !googleLinked && !hasPassword;
     const response = response_1.ApiResponse.success({
         signupProvider: user.signupProvider || 'local',
         isAppleSignup,
         currentEmail: user.email,
+        hasCustomPassword: Boolean(user.hasCustomPassword),
+        hasPassword,
         google: {
             linked: googleLinked,
             email: user.googleEmail || (googleLinked ? user.email : undefined),
@@ -433,7 +444,7 @@ exports.getLinkedAccounts = errorHandler_1.default.catchAsync((req, res) => __aw
             email: user.appleEmail,
             canUnbind: canUnbindApple,
             canLink: canLinkApple,
-            requiresGoogleBeforeUnbind: !googleLinked,
+            requiresGoogleBeforeUnbind,
         },
         canLinkGoogle,
         canUnbindApple,
@@ -581,8 +592,11 @@ function authenticateWithAppleCore(params) {
             }
         }
         const appleUserId = payload === null || payload === void 0 ? void 0 : payload.sub;
+        if (!appleUserId) {
+            throw new errors_1.BadRequestError('Invalid Apple identity token: missing sub identifier');
+        }
         const rawEmail = (payload === null || payload === void 0 ? void 0 : payload.email) || clientEmail;
-        const email = (rawEmail || `${appleUserId}@privaterelay.appleid.com`).toLowerCase();
+        const email = (rawEmail || `${appleUserId}@privaterelay.appleid.com`).toLowerCase().trim();
         let resolvedName = 'Apple User';
         if (typeof clientName === 'string' && clientName.trim()) {
             resolvedName = clientName.trim();
@@ -595,8 +609,20 @@ function authenticateWithAppleCore(params) {
         else if (email && !email.includes('privaterelay.appleid.com')) {
             resolvedName = email.split('@')[0];
         }
+        const searchConditions = [{ appleId: appleUserId }];
+        if (rawEmail) {
+            const cleanRaw = rawEmail.toLowerCase().trim();
+            searchConditions.push({ email: cleanRaw });
+            searchConditions.push({ appleEmail: cleanRaw });
+            searchConditions.push({ googleEmail: cleanRaw });
+        }
+        if (email && !email.includes('privaterelay.appleid.com')) {
+            const cleanEmail = email.toLowerCase().trim();
+            searchConditions.push({ email: cleanEmail });
+            searchConditions.push({ appleEmail: cleanEmail });
+        }
         let user = yield model_1.default.findOne({
-            $or: [{ appleId: appleUserId }, { email }],
+            $or: searchConditions,
         });
         // Auto-provision user if first time Apple sign in
         if (!user) {
@@ -611,6 +637,7 @@ function authenticateWithAppleCore(params) {
                 appleId: appleUserId,
                 appleEmail: email,
                 authProviders: ['apple'],
+                isEmailVerified: true,
             });
             yield user.save();
         }
@@ -633,6 +660,10 @@ function authenticateWithAppleCore(params) {
             if (user.appleConsentRevoked) {
                 user.appleConsentRevoked = false;
                 user.appleConsentRevokedAt = undefined;
+                needSave = true;
+            }
+            if (!user.isEmailVerified) {
+                user.isEmailVerified = true;
                 needSave = true;
             }
             if (needSave) {
@@ -672,6 +703,9 @@ exports.verifyAppleAuth = errorHandler_1.default.catchAsync((req, res) => __awai
         appleUserId,
         hasCustomPassword: Boolean(user.hasCustomPassword),
         requiresPasswordSetup: !user.hasCustomPassword,
+        isEmailVerified: true,
+        requiresEmailVerification: false,
+        signupProvider: user.signupProvider || 'apple',
         user: {
             _id: user._id,
             id: user._id,
@@ -681,6 +715,9 @@ exports.verifyAppleAuth = errorHandler_1.default.catchAsync((req, res) => __awai
             avatar: user.avatar || null,
             hasCustomPassword: Boolean(user.hasCustomPassword),
             requiresPasswordSetup: !user.hasCustomPassword,
+            isEmailVerified: true,
+            requiresEmailVerification: false,
+            signupProvider: user.signupProvider || 'apple',
         },
     }, 'Apple authentication verified successfully');
     res.status(200).json(response);
@@ -771,6 +808,7 @@ exports.linkGoogleAccount = errorHandler_1.default.catchAsync((req, res) => __aw
     res.status(200).json(response);
 }));
 exports.linkAppleAccount = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     if (!req.user) {
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
@@ -779,11 +817,11 @@ exports.linkAppleAccount = errorHandler_1.default.catchAsync((req, res) => __awa
     if (!tokenToVerify) {
         throw new errors_1.BadRequestError('Apple identityToken is required');
     }
-    const user = yield model_1.default.findById(req.user._id);
+    const user = yield model_1.default.findById(req.user._id).select('+password');
     if (!user) {
         throw new errors_1.NotFoundError('User not found');
     }
-    if (user.appleId) {
+    if (user.appleId && !user.appleConsentRevoked) {
         throw new errors_1.BadRequestError('An Apple account is already linked to this profile.');
     }
     const decodedToken = jsonwebtoken_1.default.decode(tokenToVerify, { complete: true });
@@ -792,8 +830,11 @@ exports.linkAppleAccount = errorHandler_1.default.catchAsync((req, res) => __awa
     }
     const { payload } = decodedToken;
     const appleUserId = payload === null || payload === void 0 ? void 0 : payload.sub;
+    if (!appleUserId) {
+        throw new errors_1.BadRequestError('Invalid Apple identity token: missing sub identifier');
+    }
     const rawEmail = (payload === null || payload === void 0 ? void 0 : payload.email) || clientEmail;
-    const email = (rawEmail || `${appleUserId}@privaterelay.appleid.com`).toLowerCase();
+    const email = (rawEmail || user.appleEmail || user.email || `${appleUserId}@privaterelay.appleid.com`).toLowerCase().trim();
     // Conflict check
     const conflictingUser = yield model_1.default.findOne({
         _id: { $ne: user._id },
@@ -804,15 +845,21 @@ exports.linkAppleAccount = errorHandler_1.default.catchAsync((req, res) => __awa
     }
     user.appleId = appleUserId;
     user.appleEmail = email;
+    user.appleConsentRevoked = false;
+    user.appleConsentRevokedAt = undefined;
     if (!user.authProviders)
         user.authProviders = [];
     if (!user.authProviders.includes('apple'))
         user.authProviders.push('apple');
     yield user.save();
+    const hasGoogle = Boolean(user.googleId || user.googleEmail || ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
+    const hasPassword = Boolean(user.password && (user.hasCustomPassword || user.signupProvider === 'local'));
+    const canUnbindApple = hasGoogle || hasPassword;
     const response = response_1.ApiResponse.success({
         appleId: user.appleId,
         appleEmail: user.appleEmail,
         authProviders: user.authProviders,
+        canUnbindApple,
     }, 'Apple account linked successfully.');
     res.status(200).json(response);
 }));
@@ -821,18 +868,19 @@ exports.unbindAppleAccount = errorHandler_1.default.catchAsync((req, res) => __a
     if (!req.user) {
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
-    const user = yield model_1.default.findById(req.user._id);
+    const user = yield model_1.default.findById(req.user._id).select('+password');
     if (!user) {
         throw new errors_1.NotFoundError('User not found');
     }
-    const hasApple = Boolean(user.appleId || ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('apple')));
+    const hasApple = Boolean(user.appleId || user.appleEmail || ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('apple')));
     if (!hasApple) {
         throw new errors_1.BadRequestError('No Apple account is linked to this profile.');
     }
-    // RULE: Disconnecting Apple is ONLY allowed if a Google account is already linked!
-    const hasGoogle = Boolean(user.googleId || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('google')));
-    if (!hasGoogle) {
-        throw new errors_1.BadRequestError('Apple account cannot be disconnected because no Google account is linked. Please connect a Google account first before disconnecting Apple.');
+    // RULE: Disconnecting Apple is allowed if Google is linked OR the user has a password set!
+    const hasGoogle = Boolean(user.googleId || user.googleEmail || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('google')));
+    const hasPassword = Boolean(user.password && (user.hasCustomPassword || user.signupProvider === 'local'));
+    if (!hasGoogle && !hasPassword) {
+        throw new errors_1.BadRequestError('Apple account cannot be disconnected because no other sign-in method is available. Please link a Google account or set an account password first.');
     }
     // Remove Apple association
     yield model_1.default.updateOne({ _id: user._id }, {
@@ -842,8 +890,9 @@ exports.unbindAppleAccount = errorHandler_1.default.catchAsync((req, res) => __a
     const response = response_1.ApiResponse.success({
         email: user.email,
         appleLinked: false,
-        googleLinked: true,
-    }, 'Apple account disconnected successfully. Your account is now fully connected via your Google account.');
+        googleLinked: hasGoogle,
+        hasPassword,
+    }, 'Apple account disconnected successfully.');
     res.status(200).json(response);
 }));
 exports.setPassword = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
