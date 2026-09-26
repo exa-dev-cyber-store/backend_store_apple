@@ -370,17 +370,16 @@ export const me = ErrorHandler.catchAsync(async (req: Request, res: Response) =>
         '+password name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword isEmailVerified'
     );
 
-    const isAppleSignup = userDoc?.signupProvider === 'apple' || Boolean(userDoc?.appleId && !userDoc?.googleId);
     const googleLinked = Boolean(
         userDoc?.googleId ||
         userDoc?.googleEmail ||
-        userDoc?.signupProvider === 'google' ||
         userDoc?.authProviders?.includes('google')
     );
     const appleLinked = Boolean(
-        (userDoc?.appleId || userDoc?.appleEmail || userDoc?.signupProvider === 'apple' || userDoc?.authProviders?.includes('apple')) &&
+        (userDoc?.appleId || userDoc?.appleEmail || userDoc?.authProviders?.includes('apple')) &&
         !userDoc?.appleConsentRevoked
     );
+    const isAppleSignup = Boolean((userDoc?.signupProvider === 'apple' || userDoc?.appleId) && appleLinked);
     const hasPassword = Boolean(userDoc?.password && (userDoc?.hasCustomPassword || userDoc?.signupProvider === 'local'));
     const canLinkGoogle = !googleLinked;
     const canUnbindApple = appleLinked && (googleLinked || hasPassword);
@@ -511,17 +510,16 @@ export const getLinkedAccounts = ErrorHandler.catchAsync(async (req: Request, re
         throw new NotFoundError('User not found');
     }
 
-    const isAppleSignup = user.signupProvider === 'apple' || Boolean(user.appleId && !user.googleId);
     const googleLinked = Boolean(
         user.googleId ||
         user.googleEmail ||
-        user.signupProvider === 'google' ||
         user.authProviders?.includes('google')
     );
     const appleLinked = Boolean(
-        (user.appleId || user.appleEmail || user.signupProvider === 'apple' || user.authProviders?.includes('apple')) &&
+        (user.appleId || user.appleEmail || user.authProviders?.includes('apple')) &&
         !user.appleConsentRevoked
     );
+    const isAppleSignup = Boolean((user.signupProvider === 'apple' || user.appleId) && appleLinked);
     const hasPassword = Boolean(user.password && (user.hasCustomPassword || user.signupProvider === 'local'));
     const canLinkGoogle = !googleLinked;
     const canUnbindApple = appleLinked && (googleLinked || hasPassword);
@@ -1029,7 +1027,20 @@ export const linkAppleAccount = ErrorHandler.catchAsync(async (req: Request, res
         appleId: appleUserId,
     });
     if (conflictingUser) {
-        throw new ConflictError('This Apple account is already linked to another user account.');
+        // If conflicting user is an orphaned/temporary account without Google or custom password
+        const isOrphaned = !conflictingUser.googleId && !conflictingUser.hasCustomPassword && (!conflictingUser.password || conflictingUser.signupProvider === 'apple');
+        if (isOrphaned) {
+            // Detach Apple ID from orphaned account to allow current user to link it
+            await Users.updateOne(
+                { _id: conflictingUser._id },
+                {
+                    $unset: { appleId: 1, appleEmail: 1 },
+                    $pull: { authProviders: 'apple' },
+                }
+            );
+        } else {
+            throw new ConflictError('This Apple account is already linked to another user account.');
+        }
     }
 
     user.appleId = appleUserId;
@@ -1068,9 +1079,9 @@ export const unbindAppleAccount = ErrorHandler.catchAsync(async (req: Request, r
         throw new NotFoundError('User not found');
     }
 
-    const hasApple = Boolean(user.appleId || user.appleEmail || user.authProviders?.includes('apple'));
-    if (!hasApple) {
-        throw new BadRequestError('No Apple account is linked to this profile.');
+    const hasApple = Boolean(user.appleId || user.appleEmail || user.authProviders?.includes('apple') || user.signupProvider === 'apple');
+    if (!hasApple && !user.appleId && !user.appleEmail) {
+        throw new BadRequestError('No Apple account is currently linked to this profile.');
     }
 
     // RULE: Disconnecting Apple is allowed if Google is linked OR the user has a password set!
@@ -1083,12 +1094,23 @@ export const unbindAppleAccount = ErrorHandler.catchAsync(async (req: Request, r
         );
     }
 
-    // Remove Apple association
+    // Determine fallback signup provider if current provider was apple
+    let newSignupProvider = user.signupProvider;
+    if (user.signupProvider === 'apple') {
+        if (hasGoogle) {
+            newSignupProvider = 'google';
+        } else if (hasPassword) {
+            newSignupProvider = 'local';
+        }
+    }
+
+    // Remove Apple association and reset provider if needed
     await Users.updateOne(
         { _id: user._id },
         {
-            $unset: { appleId: 1, appleEmail: 1 },
+            $unset: { appleId: 1, appleEmail: 1, appleConsentRevoked: 1, appleConsentRevokedAt: 1 },
             $pull: { authProviders: 'apple' },
+            $set: { signupProvider: newSignupProvider },
         }
     );
 
@@ -1098,6 +1120,7 @@ export const unbindAppleAccount = ErrorHandler.catchAsync(async (req: Request, r
             appleLinked: false,
             googleLinked: hasGoogle,
             hasPassword,
+            signupProvider: newSignupProvider,
         },
         'Apple account disconnected successfully.'
     );

@@ -324,13 +324,12 @@ exports.me = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, v
         throw new errors_1.UnauthorizedError('Unauthorized access');
     }
     const userDoc = yield model_1.default.findById(req.user._id).select('+password name email role avatar signupProvider googleId googleEmail appleId appleEmail authProviders hasCustomPassword isEmailVerified');
-    const isAppleSignup = (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) && !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId));
     const googleLinked = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleId) ||
         (userDoc === null || userDoc === void 0 ? void 0 : userDoc.googleEmail) ||
-        (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'google' ||
         ((_a = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
-    const appleLinked = Boolean(((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || ((_b = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
+    const appleLinked = Boolean(((userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleEmail) || ((_b = userDoc === null || userDoc === void 0 ? void 0 : userDoc.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
         !(userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleConsentRevoked));
+    const isAppleSignup = Boolean(((userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'apple' || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.appleId)) && appleLinked);
     const hasPassword = Boolean((userDoc === null || userDoc === void 0 ? void 0 : userDoc.password) && ((userDoc === null || userDoc === void 0 ? void 0 : userDoc.hasCustomPassword) || (userDoc === null || userDoc === void 0 ? void 0 : userDoc.signupProvider) === 'local'));
     const canLinkGoogle = !googleLinked;
     const canUnbindApple = appleLinked && (googleLinked || hasPassword);
@@ -415,13 +414,12 @@ exports.getLinkedAccounts = errorHandler_1.default.catchAsync((req, res) => __aw
     if (!user) {
         throw new errors_1.NotFoundError('User not found');
     }
-    const isAppleSignup = user.signupProvider === 'apple' || Boolean(user.appleId && !user.googleId);
     const googleLinked = Boolean(user.googleId ||
         user.googleEmail ||
-        user.signupProvider === 'google' ||
         ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('google')));
-    const appleLinked = Boolean((user.appleId || user.appleEmail || user.signupProvider === 'apple' || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
+    const appleLinked = Boolean((user.appleId || user.appleEmail || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('apple'))) &&
         !user.appleConsentRevoked);
+    const isAppleSignup = Boolean((user.signupProvider === 'apple' || user.appleId) && appleLinked);
     const hasPassword = Boolean(user.password && (user.hasCustomPassword || user.signupProvider === 'local'));
     const canLinkGoogle = !googleLinked;
     const canUnbindApple = appleLinked && (googleLinked || hasPassword);
@@ -841,7 +839,18 @@ exports.linkAppleAccount = errorHandler_1.default.catchAsync((req, res) => __awa
         appleId: appleUserId,
     });
     if (conflictingUser) {
-        throw new errors_1.ConflictError('This Apple account is already linked to another user account.');
+        // If conflicting user is an orphaned/temporary account without Google or custom password
+        const isOrphaned = !conflictingUser.googleId && !conflictingUser.hasCustomPassword && (!conflictingUser.password || conflictingUser.signupProvider === 'apple');
+        if (isOrphaned) {
+            // Detach Apple ID from orphaned account to allow current user to link it
+            yield model_1.default.updateOne({ _id: conflictingUser._id }, {
+                $unset: { appleId: 1, appleEmail: 1 },
+                $pull: { authProviders: 'apple' },
+            });
+        }
+        else {
+            throw new errors_1.ConflictError('This Apple account is already linked to another user account.');
+        }
     }
     user.appleId = appleUserId;
     user.appleEmail = email;
@@ -872,9 +881,9 @@ exports.unbindAppleAccount = errorHandler_1.default.catchAsync((req, res) => __a
     if (!user) {
         throw new errors_1.NotFoundError('User not found');
     }
-    const hasApple = Boolean(user.appleId || user.appleEmail || ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('apple')));
-    if (!hasApple) {
-        throw new errors_1.BadRequestError('No Apple account is linked to this profile.');
+    const hasApple = Boolean(user.appleId || user.appleEmail || ((_a = user.authProviders) === null || _a === void 0 ? void 0 : _a.includes('apple')) || user.signupProvider === 'apple');
+    if (!hasApple && !user.appleId && !user.appleEmail) {
+        throw new errors_1.BadRequestError('No Apple account is currently linked to this profile.');
     }
     // RULE: Disconnecting Apple is allowed if Google is linked OR the user has a password set!
     const hasGoogle = Boolean(user.googleId || user.googleEmail || ((_b = user.authProviders) === null || _b === void 0 ? void 0 : _b.includes('google')));
@@ -882,16 +891,28 @@ exports.unbindAppleAccount = errorHandler_1.default.catchAsync((req, res) => __a
     if (!hasGoogle && !hasPassword) {
         throw new errors_1.BadRequestError('Apple account cannot be disconnected because no other sign-in method is available. Please link a Google account or set an account password first.');
     }
-    // Remove Apple association
+    // Determine fallback signup provider if current provider was apple
+    let newSignupProvider = user.signupProvider;
+    if (user.signupProvider === 'apple') {
+        if (hasGoogle) {
+            newSignupProvider = 'google';
+        }
+        else if (hasPassword) {
+            newSignupProvider = 'local';
+        }
+    }
+    // Remove Apple association and reset provider if needed
     yield model_1.default.updateOne({ _id: user._id }, {
-        $unset: { appleId: 1, appleEmail: 1 },
+        $unset: { appleId: 1, appleEmail: 1, appleConsentRevoked: 1, appleConsentRevokedAt: 1 },
         $pull: { authProviders: 'apple' },
+        $set: { signupProvider: newSignupProvider },
     });
     const response = response_1.ApiResponse.success({
         email: user.email,
         appleLinked: false,
         googleLinked: hasGoogle,
         hasPassword,
+        signupProvider: newSignupProvider,
     }, 'Apple account disconnected successfully.');
     res.status(200).json(response);
 }));
