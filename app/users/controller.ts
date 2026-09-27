@@ -71,8 +71,9 @@ export const issueUserTokens = async (user: User, req?: Request) => {
 
 export const createUser = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
     const { password, name, email } = req.body;
+    const cleanEmail = (email || '').toLowerCase().trim();
 
-    const existingUser = await Users.findOne({ email });
+    const existingUser = await Users.findOne({ email: cleanEmail });
     if (existingUser) {
         throw new ConflictError('Email already exists');
     }
@@ -82,8 +83,8 @@ export const createUser = ErrorHandler.catchAsync(async (req: Request, res: Resp
     const cart: Cart = new Carts();
     const user: User = new Users({
         password: hashedPassword,
-        name,
-        email,
+        name: typeof name === 'string' ? name.trim() : name,
+        email: cleanEmail,
         hasCustomPassword: true,
         isEmailVerified: false,
         emailVerificationCode: verificationCode,

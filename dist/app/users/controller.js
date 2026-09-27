@@ -87,7 +87,8 @@ const issueUserTokens = (user, req) => __awaiter(void 0, void 0, void 0, functio
 exports.issueUserTokens = issueUserTokens;
 exports.createUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { password, name, email } = req.body;
-    const existingUser = yield model_1.default.findOne({ email });
+    const cleanEmail = (email || '').toLowerCase().trim();
+    const existingUser = yield model_1.default.findOne({ email: cleanEmail });
     if (existingUser) {
         throw new errors_1.ConflictError('Email already exists');
     }
@@ -96,8 +97,8 @@ exports.createUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(v
     const cart = new model_2.default();
     const user = new model_1.default({
         password: hashedPassword,
-        name,
-        email,
+        name: typeof name === 'string' ? name.trim() : name,
+        email: cleanEmail,
         hasCustomPassword: true,
         isEmailVerified: false,
         emailVerificationCode: verificationCode,
