@@ -124,4 +124,11 @@ export const resendVerificationSchema: ValidateSchema = {
   }),
 };
 
+export const deleteAccountSchema: ValidateSchema = {
+  body: z.object({
+    reason: z.string().max(500, "Reason cannot exceed 500 characters").optional(),
+    password: z.string().optional(),
+  }).optional(),
+};
+
 

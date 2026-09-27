@@ -12,12 +12,17 @@ import ErrorHandler from "../../middleware/errorHandler";
 import crypto from 'crypto';
 import { EmailService } from "../services/emailService";
 import { processAndUploadAvatar } from "../../utils/image";
+import DeliveryAddress from "../deliveryAddress/model";
+import { DeviceSubscriptions } from "../notifications/model";
 
 
 export const localStrategy = async (email: string, password: string, done: any) => {
     try {
         const normalizedEmail = (email || '').toLowerCase().trim();
-        const user: User | null = await Users.findOne({ email: normalizedEmail }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
+        const user: User | null = await Users.findOne({
+            email: normalizedEmail,
+            isDeleted: { $ne: true },
+        }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
         if (!user || !user.password) {
             return done(null, false, { message: 'Invalid email or password' });
         }
@@ -1484,6 +1489,81 @@ export const updateUserRole = ErrorHandler.catchAsync(async (req: Request, res: 
     res.status(200).json(response);
 });
 
+/**
+ * Safely soft-deletes a user account in accordance with Apple App Store Review Guideline 5.1.1(v).
+ * Anonymizes PII, frees up the original email for potential future registration,
+ * clears all active sessions, refresh tokens, device push subscriptions, and cart items,
+ * while safely preserving all order and invoice records intact for regulatory and financial audits.
+ */
+export const softDeleteUserRecord = async (user: User, reason: string = 'User initiated account deletion') => {
+    const deletedTimestamp = Date.now();
+    const originalEmail = user.originalEmail || user.email;
+
+    // 1. Anonymize user identity & credentials while preserving document ID for orders/invoices integrity
+    user.originalEmail = originalEmail;
+    user.email = `deleted_${user._id}_${deletedTimestamp}@deleted.local`;
+    user.name = 'Deleted Account';
+    user.password = undefined;
+    user.avatar = undefined;
+    user.token = [];
+    user.appleId = undefined;
+    user.appleEmail = undefined;
+    user.googleId = undefined;
+    user.googleEmail = undefined;
+    user.authProviders = [];
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    user.deletionReason = reason;
+
+    await user.save();
+
+    // 2. Invalidate and purge all active refresh tokens for this user
+    await RefreshToken.deleteMany({ userId: user._id });
+
+    // 3. Clear push notification subscriptions
+    await DeviceSubscriptions.deleteMany({ user: user._id });
+
+    // 4. Clear saved shipping addresses (PII)
+    await DeliveryAddress.deleteMany({ user: user._id });
+
+    // 5. Clear active cart
+    if (user.cart) {
+        await Carts.updateOne({ _id: user.cart }, { $set: { items: [] } });
+    }
+    await Carts.updateMany({ user: user._id }, { $set: { items: [] } });
+
+    // NOTE: Order and Invoice records remain untouched and valid with foreign key user: user._id!
+};
+
+export const deleteMyAccount = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
+    if (!req.user || !req.user._id) {
+        throw new UnauthorizedError('Authentication required');
+    }
+
+    const user = await Users.findById(req.user._id);
+    if (!user || user.isDeleted) {
+        throw new NotFoundError('User not found or account has already been deleted');
+    }
+
+    if (user.role === 'admin') {
+        throw new BadRequestError('Admin accounts cannot be deleted directly via this endpoint');
+    }
+
+    const reason = req.body?.reason || 'User initiated account deletion via app';
+    await softDeleteUserRecord(user, reason);
+
+    clearAuthCookies(res);
+
+    const response = ApiResponse.success(
+        {
+            deleted: true,
+            deletedAt: user.deletedAt,
+        },
+        'Account deleted successfully. All personal sessions have been terminated.'
+    );
+    res.status(200).json(response);
+});
+
 export const deleteUser = ErrorHandler.catchAsync(async (req: Request, res: Response) => {
     const { id } = req.params;
 
@@ -1493,11 +1573,11 @@ export const deleteUser = ErrorHandler.catchAsync(async (req: Request, res: Resp
     }
 
     const user = await Users.findById(id);
-    if (!user) {
+    if (!user || user.isDeleted) {
         throw new NotFoundError('User not found');
     }
 
-    await Users.findByIdAndDelete(id);
+    await softDeleteUserRecord(user, `Deleted by admin: ${req.user?._id || 'admin'}`);
 
     const response = ApiResponse.deleted('User deleted successfully');
     res.status(200).json(response);

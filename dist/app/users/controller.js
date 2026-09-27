@@ -23,7 +23,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.handleAppleNotifications = exports.adminCreateUser = exports.deleteUser = exports.updateUserRole = exports.getUserById = exports.getUsers = exports.resetPassword = exports.forgotPassword = exports.resendVerificationCode = exports.verifyEmail = exports.setPassword = exports.unbindAppleAccount = exports.linkAppleAccount = exports.linkGoogleAccount = exports.verifyAppleAuth = exports.verifyGoogleAuth = exports.getLinkedAccounts = exports.uploadAvatar = exports.updateProfile = exports.me = exports.logout = exports.refreshAccessToken = exports.loginGoogle = exports.login = exports.createUser = exports.issueUserTokens = exports.localStrategy = void 0;
+exports.handleAppleNotifications = exports.adminCreateUser = exports.deleteUser = exports.deleteMyAccount = exports.softDeleteUserRecord = exports.updateUserRole = exports.getUserById = exports.getUsers = exports.resetPassword = exports.forgotPassword = exports.resendVerificationCode = exports.verifyEmail = exports.setPassword = exports.unbindAppleAccount = exports.linkAppleAccount = exports.linkGoogleAccount = exports.verifyAppleAuth = exports.verifyGoogleAuth = exports.getLinkedAccounts = exports.uploadAvatar = exports.updateProfile = exports.me = exports.logout = exports.refreshAccessToken = exports.loginGoogle = exports.login = exports.createUser = exports.issueUserTokens = exports.localStrategy = void 0;
 exports.authenticateWithAppleCore = authenticateWithAppleCore;
 const model_1 = __importDefault(require("./model"));
 const refreshTokenModel_1 = __importDefault(require("./refreshTokenModel"));
@@ -38,10 +38,15 @@ const errorHandler_1 = __importDefault(require("../../middleware/errorHandler"))
 const crypto_1 = __importDefault(require("crypto"));
 const emailService_1 = require("../services/emailService");
 const image_1 = require("../../utils/image");
+const model_3 = __importDefault(require("../deliveryAddress/model"));
+const model_4 = require("../notifications/model");
 const localStrategy = (email, password, done) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const normalizedEmail = (email || '').toLowerCase().trim();
-        const user = yield model_1.default.findOne({ email: normalizedEmail }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
+        const user = yield model_1.default.findOne({
+            email: normalizedEmail,
+            isDeleted: { $ne: true },
+        }).select('-token -createdAt -updatedAt -address -phone_number -__v').select('+password +name +isEmailVerified +signupProvider +googleId +appleId');
         if (!user || !user.password) {
             return done(null, false, { message: 'Invalid email or password' });
         }
@@ -1182,17 +1187,78 @@ exports.updateUserRole = errorHandler_1.default.catchAsync((req, res) => __await
     }, `User role updated to ${role}`);
     res.status(200).json(response);
 }));
+/**
+ * Safely soft-deletes a user account in accordance with Apple App Store Review Guideline 5.1.1(v).
+ * Anonymizes PII, frees up the original email for potential future registration,
+ * clears all active sessions, refresh tokens, device push subscriptions, and cart items,
+ * while safely preserving all order and invoice records intact for regulatory and financial audits.
+ */
+const softDeleteUserRecord = (user_1, ...args_1) => __awaiter(void 0, [user_1, ...args_1], void 0, function* (user, reason = 'User initiated account deletion') {
+    const deletedTimestamp = Date.now();
+    const originalEmail = user.originalEmail || user.email;
+    // 1. Anonymize user identity & credentials while preserving document ID for orders/invoices integrity
+    user.originalEmail = originalEmail;
+    user.email = `deleted_${user._id}_${deletedTimestamp}@deleted.local`;
+    user.name = 'Deleted Account';
+    user.password = undefined;
+    user.avatar = undefined;
+    user.token = [];
+    user.appleId = undefined;
+    user.appleEmail = undefined;
+    user.googleId = undefined;
+    user.googleEmail = undefined;
+    user.authProviders = [];
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    user.deletionReason = reason;
+    yield user.save();
+    // 2. Invalidate and purge all active refresh tokens for this user
+    yield refreshTokenModel_1.default.deleteMany({ userId: user._id });
+    // 3. Clear push notification subscriptions
+    yield model_4.DeviceSubscriptions.deleteMany({ user: user._id });
+    // 4. Clear saved shipping addresses (PII)
+    yield model_3.default.deleteMany({ user: user._id });
+    // 5. Clear active cart
+    if (user.cart) {
+        yield model_2.default.updateOne({ _id: user.cart }, { $set: { items: [] } });
+    }
+    yield model_2.default.updateMany({ user: user._id }, { $set: { items: [] } });
+    // NOTE: Order and Invoice records remain untouched and valid with foreign key user: user._id!
+});
+exports.softDeleteUserRecord = softDeleteUserRecord;
+exports.deleteMyAccount = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    if (!req.user || !req.user._id) {
+        throw new errors_1.UnauthorizedError('Authentication required');
+    }
+    const user = yield model_1.default.findById(req.user._id);
+    if (!user || user.isDeleted) {
+        throw new errors_1.NotFoundError('User not found or account has already been deleted');
+    }
+    if (user.role === 'admin') {
+        throw new errors_1.BadRequestError('Admin accounts cannot be deleted directly via this endpoint');
+    }
+    const reason = ((_a = req.body) === null || _a === void 0 ? void 0 : _a.reason) || 'User initiated account deletion via app';
+    yield (0, exports.softDeleteUserRecord)(user, reason);
+    (0, utils_1.clearAuthCookies)(res);
+    const response = response_1.ApiResponse.success({
+        deleted: true,
+        deletedAt: user.deletedAt,
+    }, 'Account deleted successfully. All personal sessions have been terminated.');
+    res.status(200).json(response);
+}));
 exports.deleteUser = errorHandler_1.default.catchAsync((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     const { id } = req.params;
     // Prevent admin from deleting their own account
     if (req.user && req.user._id.toString() === id.toString()) {
         throw new errors_1.BadRequestError('You cannot delete your own account');
     }
     const user = yield model_1.default.findById(id);
-    if (!user) {
+    if (!user || user.isDeleted) {
         throw new errors_1.NotFoundError('User not found');
     }
-    yield model_1.default.findByIdAndDelete(id);
+    yield (0, exports.softDeleteUserRecord)(user, `Deleted by admin: ${((_a = req.user) === null || _a === void 0 ? void 0 : _a._id) || 'admin'}`);
     const response = response_1.ApiResponse.deleted('User deleted successfully');
     res.status(200).json(response);
 }));

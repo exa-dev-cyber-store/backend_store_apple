@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resendVerificationSchema = exports.verifyEmailSchema = exports.setPasswordSchema = exports.updateProfileSchema = exports.linkGoogleSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.createUserByAdminSchema = exports.userIdParamSchema = exports.updateUserRoleSchema = exports.listUsersSchema = exports.verifyGoogleAuthSchema = exports.loginGoogleSchema = exports.loginSchema = exports.registerSchema = void 0;
+exports.deleteAccountSchema = exports.resendVerificationSchema = exports.verifyEmailSchema = exports.setPasswordSchema = exports.updateProfileSchema = exports.linkGoogleSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.createUserByAdminSchema = exports.userIdParamSchema = exports.updateUserRoleSchema = exports.listUsersSchema = exports.verifyGoogleAuthSchema = exports.loginGoogleSchema = exports.loginSchema = exports.registerSchema = void 0;
 const zod_1 = require("zod");
 exports.registerSchema = {
     body: zod_1.z.object({
@@ -109,4 +109,10 @@ exports.resendVerificationSchema = {
     body: zod_1.z.object({
         email: zod_1.z.string().email("Invalid email address").optional(),
     }),
+};
+exports.deleteAccountSchema = {
+    body: zod_1.z.object({
+        reason: zod_1.z.string().max(500, "Reason cannot exceed 500 characters").optional(),
+        password: zod_1.z.string().optional(),
+    }).optional(),
 };

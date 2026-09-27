@@ -38,6 +38,11 @@ export interface User extends Document {
     appleConsentRevoked?: boolean;
     appleConsentRevokedAt?: Date;
     emailRelayDisabled?: boolean;
+    // Soft delete fields
+    isDeleted?: boolean;
+    deletedAt?: Date;
+    deletionReason?: string;
+    originalEmail?: string;
 }
 
 // Remove the line that references 'THydratedDocumentType'
@@ -70,6 +75,10 @@ const userSchema = new Schema<User>({
     appleConsentRevoked: { type: Boolean, default: false },
     appleConsentRevokedAt: { type: Date },
     emailRelayDisabled: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false, index: true },
+    deletedAt: { type: Date },
+    deletionReason: { type: String },
+    originalEmail: { type: String },
 }, { timestamps: true });
 
 export default model<User>('User', userSchema);

@@ -24,6 +24,7 @@ import {
     getUserById,
     updateUserRole,
     deleteUser,
+    deleteMyAccount,
     adminCreateUser,
     handleAppleNotifications,
 } from "./controller";
@@ -47,7 +48,8 @@ import {
     verifyEmailSchema,
     resendVerificationSchema,
     linkGoogleSchema,
-    updateProfileSchema
+    updateProfileSchema,
+    deleteAccountSchema,
 } from "./validation";
 import { authenticate, authorize } from "../../middleware/auth";
 
@@ -71,6 +73,8 @@ router.post('/logout', logout);
 router.get('/me', authenticate, me);
 router.put('/me', authenticate, validate(updateProfileSchema), updateProfile);
 router.put('/profile', authenticate, validate(updateProfileSchema), updateProfile);
+router.delete('/me', authenticate, validate(deleteAccountSchema), deleteMyAccount);
+router.delete('/account', authenticate, validate(deleteAccountSchema), deleteMyAccount);
 router.post('/avatar', authenticate, upload.single('avatar'), uploadAvatar);
 
 // Email Verification & Onboarding routes

@@ -62,6 +62,7 @@ const authenticate = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
         const user = yield model_1.default.findOne({
             _id: decoded._id || decoded.userId,
             token: { $in: [token] },
+            isDeleted: { $ne: true },
         });
         if (!user) {
             throw new errors_1.UnauthorizedError('Session expired or user not found');
@@ -111,6 +112,7 @@ const optionalAuth = (req, res, next) => __awaiter(void 0, void 0, void 0, funct
                 const user = yield model_1.default.findOne({
                     _id: decoded._id || decoded.userId,
                     token: { $in: [token] },
+                    isDeleted: { $ne: true },
                 });
                 if (user) {
                     req.user = {

@@ -63,6 +63,8 @@ router.post('/logout', controller_1.logout);
 router.get('/me', auth_1.authenticate, controller_1.me);
 router.put('/me', auth_1.authenticate, (0, validator_1.validate)(validation_1.updateProfileSchema), controller_1.updateProfile);
 router.put('/profile', auth_1.authenticate, (0, validator_1.validate)(validation_1.updateProfileSchema), controller_1.updateProfile);
+router.delete('/me', auth_1.authenticate, (0, validator_1.validate)(validation_1.deleteAccountSchema), controller_1.deleteMyAccount);
+router.delete('/account', auth_1.authenticate, (0, validator_1.validate)(validation_1.deleteAccountSchema), controller_1.deleteMyAccount);
 router.post('/avatar', auth_1.authenticate, upload.single('avatar'), controller_1.uploadAvatar);
 // Email Verification & Onboarding routes
 router.post('/verify-email', (0, validator_1.validate)(validation_1.verifyEmailSchema), controller_1.verifyEmail);

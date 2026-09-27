@@ -29,5 +29,9 @@ const userSchema = new mongoose_1.Schema({
     appleConsentRevoked: { type: Boolean, default: false },
     appleConsentRevokedAt: { type: Date },
     emailRelayDisabled: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false, index: true },
+    deletedAt: { type: Date },
+    deletionReason: { type: String },
+    originalEmail: { type: String },
 }, { timestamps: true });
 exports.default = (0, mongoose_1.model)('User', userSchema);

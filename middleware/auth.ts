@@ -49,6 +49,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     const user: User | null = await Users.findOne({
       _id: decoded._id || decoded.userId,
       token: { $in: [token] },
+      isDeleted: { $ne: true },
     });
 
     if (!user) {
@@ -100,6 +101,7 @@ export const optionalAuth = async (req: Request, res: Response, next: NextFuncti
           const user: User | null = await Users.findOne({
             _id: decoded._id || decoded.userId,
             token: { $in: [token] },
+            isDeleted: { $ne: true },
           });
 
           if (user) {
